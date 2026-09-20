@@ -22,6 +22,8 @@
   - `PhotoMessageUploader.upload(file_source, peer_id=None, **params) -> str`
   - `DocMessagesUploader.upload(file_source, group_id=None, peer_id=None, **params) -> str`
   - `KeyboardButtonColor` содержит ровно `PRIMARY`, `SECONDARY`, `NEGATIVE`, `POSITIVE`
+  - `VKAPIError[code](error_msg="...")` — конструктор принимает **только** именованные
+    аргументы; `VKAPIError[6]("текст")` падает с TypeError
 - `VK_API_VERSION` по умолчанию `5.199`.
 - Любая исходящая отправка — только через `outbox.enqueue(...)`. Прямой вызов `messages.send` из обработчика запрещён.
 - `random_id` генерируется один раз при постановке в очередь и не меняется при ретраях.
@@ -1057,7 +1059,7 @@ async def test_drops_none_params():
 
 
 async def test_wraps_vk_error_with_code_and_method():
-    api = FakeAPI(raises=VKAPIError[6]("too many requests"))
+    api = FakeAPI(raises=VKAPIError[6](error_msg="too many requests"))
     client = make_client(api)
     with pytest.raises(VKCallError) as exc:
         await client.call("messages.send", peer_id=1)
@@ -1066,7 +1068,7 @@ async def test_wraps_vk_error_with_code_and_method():
 
 
 async def test_error_text_carries_no_message_body():
-    api = FakeAPI(raises=VKAPIError[901]("нельзя писать"))
+    api = FakeAPI(raises=VKAPIError[901](error_msg="нельзя писать"))
     client = make_client(api)
     with pytest.raises(VKCallError) as exc:
         await client.call("messages.send", peer_id=1, message="секретный текст клиента")
