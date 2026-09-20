@@ -110,3 +110,58 @@ def test_explicit_public_url_wins_over_railway_domain():
 def test_railway_domain_with_scheme_is_not_doubled():
     cfg = load_config({**BASE_ENV, "RAILWAY_PUBLIC_DOMAIN": "https://vkbot.up.railway.app"})
     assert cfg.public_url == "https://vkbot.up.railway.app"
+
+
+from app.config import require_dashboard  # noqa: E402
+
+DASHBOARD_ENV = {
+    "WEBAUTHN_RP_ID": "bot.example",
+    "WEBAUTHN_ORIGIN": "https://bot.example",
+    "VAPID_PUBLIC_KEY": "B" * 87,
+    "VAPID_PRIVATE_KEY": "p" * 43,
+    "VAPID_SUBJECT": "mailto:admin@example.com",
+}
+
+
+def test_dashboard_not_ready_without_keys():
+    assert load_config(BASE_ENV).dashboard_ready is False
+
+
+def test_dashboard_ready_with_all_keys():
+    assert load_config({**BASE_ENV, **DASHBOARD_ENV}).dashboard_ready is True
+
+
+def test_require_dashboard_lists_every_missing_variable():
+    with pytest.raises(ConfigError) as exc:
+        require_dashboard(load_config(BASE_ENV))
+    message = str(exc.value)
+    for name in DASHBOARD_ENV:
+        assert name in message
+
+
+def test_require_dashboard_passes_when_configured():
+    require_dashboard(load_config({**BASE_ENV, **DASHBOARD_ENV}))
+
+
+def test_rp_id_derived_from_public_url():
+    """RP ID — это голый домен без схемы и порта."""
+    cfg = load_config({**BASE_ENV, "PUBLIC_URL": "https://worker-production-f298.up.railway.app"})
+    assert cfg.webauthn_rp_id == "worker-production-f298.up.railway.app"
+
+
+def test_explicit_rp_id_wins():
+    cfg = load_config({
+        **BASE_ENV,
+        "PUBLIC_URL": "https://bot.up.railway.app",
+        "WEBAUTHN_RP_ID": "support.example.ru",
+    })
+    assert cfg.webauthn_rp_id == "support.example.ru"
+
+
+def test_origin_derived_from_public_url():
+    cfg = load_config({**BASE_ENV, "PUBLIC_URL": "https://bot.up.railway.app"})
+    assert cfg.webauthn_origin == "https://bot.up.railway.app"
+
+
+def test_rp_id_empty_without_public_url():
+    assert load_config(BASE_ENV).webauthn_rp_id == ""

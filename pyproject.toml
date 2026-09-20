@@ -7,6 +7,8 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "vkbottle==4.11.0",
     "asyncpg>=0.30",
+    "webauthn>=3.0.0",
+    "pywebpush>=2.5.0",
 ]
 
 [dependency-groups]

@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 VALID_MODES = ("callback", "longpoll")
 
@@ -29,6 +30,16 @@ class Config:
     vapid_public_key: str
     vapid_private_key: str
     vapid_subject: str
+
+    @property
+    def dashboard_ready(self) -> bool:
+        return all((
+            self.webauthn_rp_id,
+            self.webauthn_origin,
+            self.vapid_public_key,
+            self.vapid_private_key,
+            self.vapid_subject,
+        ))
 
 
 def _required(env: Mapping[str, str], key: str) -> str:
@@ -60,6 +71,20 @@ def _resolve_public_url(env: Mapping[str, str]) -> str:
     return f"https://{domain}"
 
 
+def _resolve_rp_id(env: Mapping[str, str], public_url: str) -> str:
+    """RP ID для passkey — голый домен: без схемы, порта и пути.
+
+    Ключ привязан к этому значению намертво: смена домена требует
+    перерегистрации passkey, это ограничение стандарта WebAuthn.
+    """
+    explicit = env.get("WEBAUTHN_RP_ID", "").strip()
+    if explicit:
+        return explicit
+    if not public_url:
+        return ""
+    return urlparse(public_url).hostname or ""
+
+
 def _required_int(env: Mapping[str, str], key: str) -> int:
     raw = _required(env, key)
     try:
@@ -86,6 +111,8 @@ def load_config(env: Mapping[str, str]) -> Config:
     if mode not in VALID_MODES:
         raise ConfigError(f"VK_MODE должна быть одной из {VALID_MODES}")
 
+    public_url = _resolve_public_url(env)
+
     session_secret = _required(env, "SESSION_SECRET")
     if len(session_secret) < 32:
         raise ConfigError("SESSION_SECRET должна быть не короче 32 символов")
@@ -103,14 +130,37 @@ def load_config(env: Mapping[str, str]) -> Config:
         vk_api_version=env.get("VK_API_VERSION", "").strip() or "5.199",
         admin_id=_required_int(env, "ADMIN_ID"),
         database_url=_required(env, "DATABASE_URL"),
-        public_url=_resolve_public_url(env),
+        public_url=public_url,
         vk_mode=mode,
         work_hours=_parse_work_hours(env.get("WORK_HOURS", "").strip() or "10-19"),
         tz=env.get("TZ", "").strip() or "Europe/Moscow",
         session_secret=session_secret,
-        webauthn_rp_id=env.get("WEBAUTHN_RP_ID", "").strip(),
-        webauthn_origin=env.get("WEBAUTHN_ORIGIN", "").strip(),
+        webauthn_rp_id=_resolve_rp_id(env, public_url),
+        webauthn_origin=env.get("WEBAUTHN_ORIGIN", "").strip() or public_url,
         vapid_public_key=env.get("VAPID_PUBLIC_KEY", "").strip(),
         vapid_private_key=env.get("VAPID_PRIVATE_KEY", "").strip(),
         vapid_subject=env.get("VAPID_SUBJECT", "").strip(),
     )
+
+
+DASHBOARD_VARIABLES = (
+    "WEBAUTHN_RP_ID",
+    "WEBAUTHN_ORIGIN",
+    "VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY",
+    "VAPID_SUBJECT",
+)
+
+
+def require_dashboard(cfg: Config) -> None:
+    """Проверяет, что дашборд настроен. Перечисляет всё недостающее разом."""
+    values = {
+        "WEBAUTHN_RP_ID": cfg.webauthn_rp_id,
+        "WEBAUTHN_ORIGIN": cfg.webauthn_origin,
+        "VAPID_PUBLIC_KEY": cfg.vapid_public_key,
+        "VAPID_PRIVATE_KEY": cfg.vapid_private_key,
+        "VAPID_SUBJECT": cfg.vapid_subject,
+    }
+    missing = [name for name in DASHBOARD_VARIABLES if not values[name]]
+    if missing:
+        raise ConfigError("не заданы переменные дашборда: " + ", ".join(missing))
