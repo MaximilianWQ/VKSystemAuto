@@ -22,6 +22,7 @@ from app.web.api import router as api_router
 from app.web.auth import router as auth_router
 from app.web.bus import Bus
 from app.web.push import router as push_router
+from app.web.spa import mount as mount_spa
 from app.web.ws import router as ws_router
 
 logging.basicConfig(
@@ -114,6 +115,10 @@ def create_app(cfg: Config) -> FastAPI:
         await handle_event(application.state.pool, cfg, event, notify=notify)
 
     application.state.handler = handler
+
+    # Статику монтируем последней: её фолбэк ловит всё подряд и должен
+    # оказаться позади всех маршрутов API.
+    mount_spa(application)
     return application
 
 

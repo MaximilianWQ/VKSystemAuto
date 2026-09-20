@@ -21,3 +21,8 @@ dist/
 .DS_Store
 .idea/
 *.swp
+
+# frontend
+web/node_modules/
+web/dist/
+.playwright-mcp/
