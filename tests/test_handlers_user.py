@@ -249,3 +249,65 @@ async def test_each_link_issues_a_new_token(pool):
 async def test_admin_can_still_use_the_bot_normally(pool):
     await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="Начать"))
     assert "keyboard" in (await sent(pool))[0]
+
+
+async def test_notify_called_for_message_in_open_ticket(pool):
+    seen = []
+
+    async def notify(event):
+        seen.append(event)
+
+    await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}), notify=notify)
+    await handle_event(pool, CFG, message_new(text="проблема"), notify=notify)
+    await handle_event(pool, CFG, message_new(text="ещё деталь"), notify=notify)
+
+    assert len(seen) == 2
+    assert seen[-1]["type"] == "message"
+    assert seen[-1]["text"] == "ещё деталь"
+    assert seen[-1]["user_id"] == 1
+    assert seen[-1]["ticket_id"] == (await q.get_open_ticket(pool, 1))["id"]
+
+
+async def test_notify_carries_attachments(pool):
+    seen = []
+
+    async def notify(event):
+        seen.append(event)
+
+    await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}), notify=notify)
+    photo = {"type": "photo", "photo": {"id": 1, "owner_id": 2,
+                                        "sizes": [{"url": "big.jpg", "width": 900}]}}
+    await handle_event(pool, CFG, message_new(text="", attachments=[photo]), notify=notify)
+    assert seen[-1]["attachments"][0]["type"] == "photo"
+
+
+async def test_notify_not_called_for_menu_clicks(pool):
+    """Нажатие кнопки меню — не обращение, дёргать оператора незачем."""
+    seen = []
+
+    async def notify(event):
+        seen.append(event)
+
+    await handle_event(pool, CFG, message_new(text="Начать"), notify=notify)
+    await handle_event(pool, CFG, message_new(payload={"cmd": "faq"}), notify=notify)
+    assert seen == []
+
+
+async def test_handler_survives_broken_notify(pool):
+    """Упавшее уведомление не должно терять сообщение клиента."""
+    async def notify(event):
+        raise RuntimeError("шина сломалась")
+
+    await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}), notify=notify)
+    await handle_event(pool, CFG, message_new(text="проблема"), notify=notify)
+
+    ticket = await q.get_open_ticket(pool, 1)
+    assert ticket is not None
+    assert await pool.fetchval(
+        "SELECT count(*) FROM ticket_messages WHERE ticket_id = $1", ticket["id"]) == 1
+
+
+async def test_works_without_notify(pool):
+    await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}))
+    await handle_event(pool, CFG, message_new(text="проблема"))
+    assert await q.get_open_ticket(pool, 1) is not None

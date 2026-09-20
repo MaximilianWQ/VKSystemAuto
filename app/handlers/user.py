@@ -5,6 +5,7 @@
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 
 import asyncpg
 
@@ -35,14 +36,31 @@ def _parse_payload(raw: str | None) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-async def handle_event(pool: asyncpg.Pool, cfg: Config, event: dict) -> None:
+Notify = Callable[[dict], Awaitable[None]]
+
+
+async def handle_event(
+    pool: asyncpg.Pool, cfg: Config, event: dict, notify: Notify | None = None
+) -> None:
     if event.get("type") != "message_new":
         return
     message = (event.get("object") or {}).get("message") or {}
-    await _handle_message(pool, cfg, message)
+    await _handle_message(pool, cfg, message, notify)
 
 
-async def _handle_message(pool: asyncpg.Pool, cfg: Config, message: dict) -> None:
+async def _safe_notify(notify: Notify | None, event: dict) -> None:
+    """Сломанная шина не должна стоить нам сообщения клиента."""
+    if notify is None:
+        return
+    try:
+        await notify(event)
+    except Exception:
+        logger.exception("уведомление дашборда не доставлено")
+
+
+async def _handle_message(
+    pool: asyncpg.Pool, cfg: Config, message: dict, notify: Notify | None = None
+) -> None:
     user_id = message.get("from_id", 0)
     if user_id <= 0:
         # Отрицательный from_id — сообщение от сообщества, не от человека.
@@ -74,7 +92,7 @@ async def _handle_message(pool: asyncpg.Pool, cfg: Config, message: dict) -> Non
     elif command == "menu" or text.lower() in MENU_WORDS:
         await _send_menu(pool, peer_id)
     else:
-        await _handle_free_text(pool, cfg, user_id, peer_id, message, text)
+        await _handle_free_text(pool, cfg, user_id, peer_id, message, text, notify)
 
 
 async def _send_setup_link(pool: asyncpg.Pool, cfg: Config, peer_id: int) -> None:
@@ -162,7 +180,7 @@ async def _save_rating(
 
 async def _handle_free_text(
     pool: asyncpg.Pool, cfg: Config, user_id: int, peer_id: int,
-    message: dict, text: str,
+    message: dict, text: str, notify: Notify | None = None,
 ) -> None:
     items = parse_attachments(message.get("attachments") or [])
     geo = parse_geo(message.get("geo"))
@@ -172,6 +190,10 @@ async def _handle_free_text(
     ticket = await q.get_open_ticket(pool, user_id)
     if ticket is not None:
         await q.add_message(pool, ticket["id"], "in", text, items, message.get("id"))
+        await _safe_notify(notify, {
+            "type": "message", "ticket_id": ticket["id"], "user_id": user_id,
+            "text": text, "attachments": items,
+        })
         return
 
     user = await q.get_user(pool, user_id)
@@ -182,6 +204,11 @@ async def _handle_free_text(
     ticket_id = await q.create_ticket(pool, user_id)
     await q.add_message(pool, ticket_id, "in", text, items, message.get("id"))
     await q.set_user_state(pool, user_id, STATE_IDLE)
+
+    await _safe_notify(notify, {
+        "type": "message", "ticket_id": ticket_id, "user_id": user_id,
+        "text": text, "attachments": items,
+    })
 
     await outbox.enqueue(
         pool, peer_id, texts.TICKET_CREATED.format(id=ticket_id),
