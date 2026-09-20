@@ -1,0 +1,74 @@
+import pytest
+
+from app.config import ConfigError, load_config
+
+BASE_ENV = {
+    "VK_GROUP_TOKEN": "tok",
+    "VK_GROUP_ID": "123",
+    "VK_CONFIRMATION_CODE": "abc123",
+    "VK_SECRET_KEY": "sec",
+    "ADMIN_ID": "456",
+    "DATABASE_URL": "postgresql://localhost/test",
+    "SESSION_SECRET": "s" * 32,
+}
+
+
+def test_loads_required_values():
+    cfg = load_config(BASE_ENV)
+    assert cfg.vk_group_id == 123
+    assert cfg.admin_id == 456
+    assert cfg.vk_group_token == "tok"
+
+
+def test_applies_defaults():
+    cfg = load_config(BASE_ENV)
+    assert cfg.vk_api_version == "5.199"
+    assert cfg.vk_mode == "callback"
+    assert cfg.work_hours == (10, 19)
+    assert cfg.tz == "Europe/Moscow"
+
+
+def test_parses_work_hours():
+    cfg = load_config({**BASE_ENV, "WORK_HOURS": "9-21"})
+    assert cfg.work_hours == (9, 21)
+
+
+def test_rejects_missing_required():
+    env = {k: v for k, v in BASE_ENV.items() if k != "VK_GROUP_TOKEN"}
+    with pytest.raises(ConfigError, match="VK_GROUP_TOKEN"):
+        load_config(env)
+
+
+def test_rejects_non_numeric_group_id():
+    with pytest.raises(ConfigError, match="VK_GROUP_ID"):
+        load_config({**BASE_ENV, "VK_GROUP_ID": "не число"})
+
+
+def test_rejects_bad_work_hours():
+    with pytest.raises(ConfigError, match="WORK_HOURS"):
+        load_config({**BASE_ENV, "WORK_HOURS": "21-9"})
+
+
+def test_rejects_unknown_vk_mode():
+    with pytest.raises(ConfigError, match="VK_MODE"):
+        load_config({**BASE_ENV, "VK_MODE": "webhook"})
+
+
+def test_rejects_short_session_secret():
+    with pytest.raises(ConfigError, match="SESSION_SECRET"):
+        load_config({**BASE_ENV, "SESSION_SECRET": "short"})
+
+
+def test_dashboard_values_optional_for_now():
+    cfg = load_config(BASE_ENV)
+    assert cfg.webauthn_rp_id == ""
+    assert cfg.vapid_public_key == ""
+
+
+def test_public_url_defaults_to_empty():
+    assert load_config(BASE_ENV).public_url == ""
+
+
+def test_public_url_trailing_slash_removed():
+    cfg = load_config({**BASE_ENV, "PUBLIC_URL": "https://bot.up.railway.app/"})
+    assert cfg.public_url == "https://bot.up.railway.app"
