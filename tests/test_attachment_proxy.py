@@ -123,3 +123,103 @@ async def test_unknown_message_is_404(setup):
 async def test_index_out_of_range_is_404(setup):
     http, _, message_id = setup
     assert (await http.get(f"/api/attachments/{message_id}/7")).status_code == 404
+
+
+# --- Защита от XSS через вложение ---------------------------------------
+# Вложения присылают произвольные пользователи ВК, а документом можно загрузить
+# .html или .svg. Отдать такое inline на домене дашборда — значит выполнить
+# чужой скрипт с правами оператора.
+
+async def make_message(pool, item, vk_message_id=555):
+    await q.upsert_user(pool, 1, "Максим", "Новиков")
+    ticket_id = await q.get_open_ticket(pool, 1) or await q.create_ticket(pool, 1)
+    tid = ticket_id["id"] if not isinstance(ticket_id, int) else ticket_id
+    return await q.add_message(pool, tid, "in", "", [item], vk_message_id=vk_message_id)
+
+
+@pytest.mark.parametrize("hostile_type", [
+    "text/html",
+    "text/html; charset=utf-8",
+    "image/svg+xml",
+    "application/xhtml+xml",
+    "application/xml",
+    "text/xml",
+])
+async def test_dangerous_type_is_never_served_as_is(setup, monkeypatch, pool, hostile_type):
+    http, _, _ = setup
+    message_id = await make_message(
+        pool, {"type": "doc", "title": "payload.html", "url": "https://vk.com/x", "ext": "html"})
+    monkeypatch.setattr(api, "_fetch_attachment",
+                        FakeFetcher([(200, b"<script>alert(1)</script>", hostile_type)]))
+
+    response = await http.get(f"/api/attachments/{message_id}/0")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/octet-stream")
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+async def test_dangerous_attachment_carries_hardening_headers(setup, monkeypatch, pool):
+    http, _, _ = setup
+    message_id = await make_message(
+        pool, {"type": "doc", "title": "payload.html", "url": "https://vk.com/x", "ext": "html"})
+    monkeypatch.setattr(api, "_fetch_attachment",
+                        FakeFetcher([(200, b"<script>", "text/html")]))
+
+    response = await http.get(f"/api/attachments/{message_id}/0")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in response.headers["content-security-policy"]
+
+
+@pytest.mark.parametrize("safe_type", [
+    "image/png", "image/jpeg", "image/webp", "image/gif", "audio/ogg", "audio/mpeg",
+])
+async def test_safe_media_still_renders_inline(setup, monkeypatch, pool, safe_type):
+    """Иначе фото и голосовые перестанут показываться в чате."""
+    http, _, _ = setup
+    message_id = await make_message(
+        pool, {"type": "photo", "url": "https://vk.com/p.jpg"})
+    monkeypatch.setattr(api, "_fetch_attachment",
+                        FakeFetcher([(200, b"\x89PNG", safe_type)]))
+
+    response = await http.get(f"/api/attachments/{message_id}/0")
+    assert response.headers["content-type"].startswith(safe_type)
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_pdf_is_downloaded_not_opened(setup, monkeypatch, pool):
+    """Встроенные просмотрщики PDF умеют исполнять скрипты."""
+    http, _, _ = setup
+    message_id = await make_message(
+        pool, {"type": "doc", "title": "счёт.pdf", "url": "https://vk.com/d.pdf"})
+    monkeypatch.setattr(api, "_fetch_attachment",
+                        FakeFetcher([(200, b"%PDF", "application/pdf")]))
+
+    response = await http.get(f"/api/attachments/{message_id}/0")
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+async def test_unknown_type_is_downloaded(setup, monkeypatch, pool):
+    http, _, _ = setup
+    message_id = await make_message(
+        pool, {"type": "doc", "title": "архив.zip", "url": "https://vk.com/a.zip"})
+    monkeypatch.setattr(api, "_fetch_attachment",
+                        FakeFetcher([(200, b"PK", "application/zip")]))
+
+    response = await http.get(f"/api/attachments/{message_id}/0")
+    assert response.headers["content-type"].startswith("application/octet-stream")
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+async def test_non_https_url_is_refused(setup, monkeypatch, pool):
+    """Схема приходит из данных ВК; выпускать прокси на file:// или http:// незачем."""
+    http, _, _ = setup
+    message_id = await make_message(
+        pool, {"type": "doc", "title": "x", "url": "file:///etc/passwd"})
+    called = []
+    monkeypatch.setattr(api, "_fetch_attachment",
+                        lambda url: called.append(url))
+
+    response = await http.get(f"/api/attachments/{message_id}/0")
+    assert response.status_code == 400
+    assert called == []

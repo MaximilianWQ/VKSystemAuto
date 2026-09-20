@@ -169,6 +169,32 @@ async def upload(request: Request, peer_id: int, file: UploadFile = File(...)) -
 
 ATTACHMENT_TIMEOUT = 30.0
 
+# Вложения присылают произвольные пользователи ВК, а документом можно загрузить
+# .html или .svg. Отдать такое inline на домене дашборда — значит выполнить чужой
+# скрипт с правами оператора: сессионная кука HttpOnly, но запросы к API она не
+# остановит. Поэтому inline разрешён только тому, что заведомо не исполняется,
+# всё остальное уходит на скачивание с обезличенным типом.
+INLINE_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/webp", "image/gif",
+    "audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac",
+    "video/mp4", "video/webm",
+})
+NEUTRAL_TYPE = "application/octet-stream"
+HARDENING_HEADERS = {
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+    "referrer-policy": "no-referrer",
+}
+
+
+def _safe_disposition(content_type: str) -> tuple[str, str]:
+    """Возвращает безопасный тип и способ показа для полученного содержимого."""
+    bare = (content_type or "").split(";", 1)[0].strip().lower()
+    if bare in INLINE_TYPES:
+        return bare, "inline"
+    # Сюда попадают text/html, image/svg+xml, application/pdf и всё незнакомое.
+    return NEUTRAL_TYPE, "attachment"
+
 
 async def _fetch_attachment(url: str) -> tuple[int, bytes, str]:
     """Возвращает статус, тело и тип содержимого. Вынесено ради подмены в тестах."""
@@ -228,6 +254,9 @@ async def attachment(request: Request, message_id: int, index: int) -> RawRespon
     url = _attachment_url(items[index])
     if not url:
         raise HTTPException(status_code=404, detail="у вложения нет ссылки")
+    if not url.startswith("https://"):
+        # Схема приходит из данных ВК; выпускать прокси на file:// или http:// незачем.
+        raise HTTPException(status_code=400, detail="недопустимая ссылка вложения")
 
     status, body, content_type = await _fetch_attachment(url)
     if status in (401, 403, 410):
@@ -235,7 +264,7 @@ async def attachment(request: Request, message_id: int, index: int) -> RawRespon
         fresh = await _refresh_attachments(request, row)
         if fresh and index < len(fresh):
             url = _attachment_url(fresh[index])
-            if url:
+            if url.startswith("https://"):
                 status, body, content_type = await _fetch_attachment(url)
                 items = fresh
 
@@ -243,8 +272,12 @@ async def attachment(request: Request, message_id: int, index: int) -> RawRespon
         raise HTTPException(status_code=502, detail="вложение недоступно")
 
     name = _attachment_name(items[index], index)
+    safe_type, disposition = _safe_disposition(content_type)
     return RawResponse(
         content=body,
-        media_type=content_type,
-        headers={"content-disposition": f"inline; filename*=UTF-8''{quote(name)}"},
+        media_type=safe_type,
+        headers={
+            "content-disposition": f"{disposition}; filename*=UTF-8''{quote(name)}",
+            **HARDENING_HEADERS,
+        },
     )
