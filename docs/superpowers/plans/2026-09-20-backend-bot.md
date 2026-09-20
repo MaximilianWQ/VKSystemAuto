@@ -2764,7 +2764,7 @@ async def test_handler_failure_does_not_break_response(client, pool):
 async def test_malformed_json_returns_400(client):
     http, _ = client
     response = await http.post(
-        "/vk/callback", content=b"{не json", headers={"content-type": "application/json"}
+        "/vk/callback", content="{не json".encode(), headers={"content-type": "application/json"}
     )
     assert response.status_code == 400
 
