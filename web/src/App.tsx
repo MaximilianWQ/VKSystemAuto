@@ -4,6 +4,7 @@ import { refreshSubscription } from './push'
 import { useSocket } from './useSocket'
 import { Shell, type Tab } from './components/Shell'
 import { Dialogs, fetchDialogs } from './screens/Dialogs'
+import { Faq } from './screens/Faq'
 import { Login } from './screens/Login'
 import { Settings } from './screens/Settings'
 import { Setup } from './screens/Setup'
@@ -73,6 +74,7 @@ export default function App() {
           onToggleClosed={setShowClosed}
         />
       )}
+      {tab === 'faq' && <Faq />}
       {tab === 'stats' && <Stats />}
       {tab === 'settings' && <Settings onLoggedOut={() => setAuth('out')} />}
     </Shell>

@@ -46,6 +46,9 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : '{}' }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  remove: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   upload: <T>(path: string, file: File) => {
     const form = new FormData()
     form.append('file', file)

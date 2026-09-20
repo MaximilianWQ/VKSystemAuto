@@ -281,3 +281,71 @@ async def attachment(request: Request, message_id: int, index: int) -> RawRespon
             **HARDENING_HEADERS,
         },
     )
+
+
+def _faq(row) -> dict:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "answer": row["answer"],
+        "position": row["position"],
+        "is_active": row["is_active"],
+    }
+
+
+@router.get("/faq")
+async def list_faq(request: Request) -> list[dict]:
+    rows = await q.list_all_faq(request.app.state.pool)
+    return [_faq(row) for row in rows]
+
+
+@router.post("/faq")
+async def create_faq(request: Request) -> dict:
+    body = await request.json()
+    title = str(body.get("title", "")).strip()
+    answer = str(body.get("answer", "")).strip()
+    if not title or not answer:
+        raise HTTPException(status_code=400, detail="нужны и тема, и ответ")
+    if len(title) > 200:
+        # Длинная тема не влезет в кнопку ВК и будет обрезана многоточием.
+        raise HTTPException(status_code=400, detail="тема длиннее 200 символов")
+    return _faq(await q.create_faq(request.app.state.pool, title, answer))
+
+
+@router.patch("/faq/{faq_id}")
+async def update_faq(request: Request, faq_id: int) -> dict:
+    body = await request.json()
+    title = body.get("title")
+    answer = body.get("answer")
+    if title is not None and not str(title).strip():
+        raise HTTPException(status_code=400, detail="тема не может быть пустой")
+    if answer is not None and not str(answer).strip():
+        raise HTTPException(status_code=400, detail="ответ не может быть пустым")
+
+    row = await q.update_faq(
+        request.app.state.pool,
+        faq_id,
+        title=str(title).strip() if title is not None else None,
+        answer=str(answer).strip() if answer is not None else None,
+        is_active=body.get("is_active"),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="тема не найдена")
+    return _faq(row)
+
+
+@router.delete("/faq/{faq_id}")
+async def delete_faq(request: Request, faq_id: int) -> dict:
+    if not await q.delete_faq(request.app.state.pool, faq_id):
+        raise HTTPException(status_code=404, detail="тема не найдена")
+    return {"ok": True}
+
+
+@router.post("/faq/reorder")
+async def reorder_faq(request: Request) -> dict:
+    body = await request.json()
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not all(isinstance(item, int) for item in ids):
+        raise HTTPException(status_code=400, detail="нужен список идентификаторов")
+    await q.reorder_faq(request.app.state.pool, ids)
+    return {"ok": True}
