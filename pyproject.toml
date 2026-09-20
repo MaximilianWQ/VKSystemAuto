@@ -35,5 +35,10 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "ASYNC", "S"]
 ignore = ["S101"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Depends/File/Query в значениях по умолчанию — штатная идиома FastAPI,
+# а не забытый вызов в аргументе.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Query"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S105", "S106"]

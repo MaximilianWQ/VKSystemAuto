@@ -455,7 +455,7 @@ async def test_guard_rejects_without_cookie(pool):
 
 async def test_guard_rejects_bad_cookie(pool):
     http = build_guarded_app(pool)
-    http.cookies.set(sessions.COOKIE_NAME, "мусор")
+    http.cookies.set(sessions.COOKIE_NAME, "garbage")
     assert (await http.get("/api/secret")).status_code == 401
 
 
@@ -471,11 +471,11 @@ async def test_guard_accepts_valid_cookie(pool):
 async def test_cookie_flags_are_safe():
     from fastapi.responses import JSONResponse
     response = JSONResponse({})
-    sessions.set_cookie(response, "токен", ttl_days=30)
+    sessions.set_cookie(response, "token-value", ttl_days=30)
     header = response.headers["set-cookie"]
     assert "HttpOnly" in header
     assert "Secure" in header
-    assert "SameSite=lax" in header.replace("samesite", "SameSite")
+    assert "samesite=lax" in header.lower()
 
 
 async def test_clear_cookie_expires_it():
@@ -2805,7 +2805,7 @@ async def test_rejects_without_cookie(app_with_ws):
 async def test_rejects_bad_cookie(app_with_ws):
     app, _ = app_with_ws
     with TestClient(app) as http, pytest.raises(Exception):
-        http.cookies.set(sessions.COOKIE_NAME, "мусор")
+        http.cookies.set(sessions.COOKIE_NAME, "garbage")
         with http.websocket_connect("/ws"):
             pass
 

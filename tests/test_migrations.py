@@ -24,7 +24,7 @@ async def test_migrations_are_idempotent(pool):
 
 async def test_records_applied_migration(pool):
     names = await pool.fetch("SELECT name FROM schema_migrations ORDER BY name")
-    assert [r["name"] for r in names] == ["001_init.sql"]
+    assert [r["name"] for r in names] == ["001_init.sql", "002_dashboard.sql"]
 
 
 async def test_ticket_status_is_constrained(pool):
