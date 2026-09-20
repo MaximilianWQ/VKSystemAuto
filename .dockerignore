@@ -1,0 +1,12 @@
+.git
+.venv
+tests
+loadtests
+docs
+node_modules
+__pycache__
+*.pyc
+.env
+.pytest_cache
+.ruff_cache
+conftest.py
