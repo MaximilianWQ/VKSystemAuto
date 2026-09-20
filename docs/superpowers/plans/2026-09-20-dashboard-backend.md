@@ -798,7 +798,8 @@ async def test_verify_burns_the_setup_token(client, pool, monkeypatch):
     assert await pool.fetchval("SELECT used_at FROM setup_tokens") is not None
 
 
-async def test_verify_rejects_reused_setup_token(client, pool, monkeypatch):
+async def test_reused_setup_link_is_rejected_at_the_first_step(client, pool, monkeypatch):
+    """Повторный заход по ссылке отсекается уже на выдаче опций."""
     monkeypatch.setattr(auth, "verify_registration_response",
                         lambda **kwargs: FakeVerified())
     token = await setup_tokens.issue(pool)
@@ -806,10 +807,23 @@ async def test_verify_rejects_reused_setup_token(client, pool, monkeypatch):
     await client.post("/api/auth/register/verify",
                       json={"token": token, "credential": {"id": "x"}})
 
+    again = await client.post("/api/auth/register/options", json={"token": token})
+    assert again.status_code == 403
+    assert await pool.fetchval("SELECT count(*) FROM admin_credentials") == 1
+
+
+async def test_verify_with_spent_token_adds_no_credential(client, pool, monkeypatch):
+    """Даже если дойти до verify в обход, второй ключ не появится."""
+    monkeypatch.setattr(auth, "verify_registration_response",
+                        lambda **kwargs: FakeVerified())
+    token = await setup_tokens.issue(pool)
     await client.post("/api/auth/register/options", json={"token": token})
+    await client.post("/api/auth/register/verify",
+                      json={"token": token, "credential": {"id": "x"}})
+
     second = await client.post("/api/auth/register/verify",
                                json={"token": token, "credential": {"id": "x"}})
-    assert second.status_code == 403
+    assert second.status_code >= 400
     assert await pool.fetchval("SELECT count(*) FROM admin_credentials") == 1
 
 

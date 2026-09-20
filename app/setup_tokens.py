@@ -14,8 +14,12 @@ TTL_SECONDS = 600
 TOKEN_BYTES = 32
 
 
-def _hash(token: str) -> str:
+def hash_token(token: str) -> str:
+    """Публичная: тем же хешем проверяет токен модуль авторизации."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+_hash = hash_token
 
 
 async def issue(pool: asyncpg.Pool, ttl_seconds: int = TTL_SECONDS) -> str:
