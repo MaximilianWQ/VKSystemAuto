@@ -90,3 +90,29 @@ async def test_old_tickets_excluded_from_week(client, pool):
         " VALUES (9, 'closed', now() - interval '30 days')"
     )
     assert (await client.get("/api/stats")).json()["week"] == 0
+
+
+async def test_rating_breakdown_is_returned(client, pool):
+    """Средняя оценка скрывает картину: две пятёрки и двойка дают те же 4.0,
+    что и три четвёрки. Нужно распределение."""
+    for vk_id, rating in ((1, 5), (2, 5), (3, 2)):
+        await q.upsert_user(pool, vk_id)
+        ticket = await q.create_ticket(pool, vk_id)
+        await q.close_ticket(pool, ticket, rating=rating)
+
+    body = (await client.get("/api/stats")).json()
+    assert body["ratings"] == {"1": 0, "2": 1, "3": 0, "4": 0, "5": 2}
+    assert body["ratings_total"] == 3
+
+
+async def test_rating_breakdown_is_zeroed_when_empty(client):
+    body = (await client.get("/api/stats")).json()
+    assert body["ratings"] == {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    assert body["ratings_total"] == 0
+
+
+async def test_unrated_tickets_are_not_counted(client, pool):
+    await q.upsert_user(pool, 1)
+    ticket = await q.create_ticket(pool, 1)
+    await q.close_ticket(pool, ticket)
+    assert (await client.get("/api/stats")).json()["ratings_total"] == 0

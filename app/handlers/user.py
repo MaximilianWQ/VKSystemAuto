@@ -52,6 +52,39 @@ async def handle_event(
     await _handle_message(pool, cfg, message, notify)
 
 
+async def _notify_message(
+    notify: Notify | None, pool: asyncpg.Pool, ticket_id: int,
+    user_id: int, message_id: int,
+) -> None:
+    """Событие несёт само сообщение целиком.
+
+    Без этого дашборд вынужден перезапрашивать всю ленту на каждое входящее —
+    сообщение появляется рывком и с задержкой вместо мгновенной дописки.
+    """
+    if notify is None:
+        return
+    row = await pool.fetchrow(
+        "SELECT * FROM ticket_messages WHERE id = $1", message_id
+    )
+    if row is None:
+        return
+    await _safe_notify(notify, {
+        "type": "message",
+        "ticket_id": ticket_id,
+        "user_id": user_id,
+        "text": row["text"],
+        "attachments": row["attachments"] or [],
+        "message": {
+            "id": row["id"],
+            "direction": row["direction"],
+            "text": row["text"],
+            "attachments": row["attachments"] or [],
+            "created_at": row["created_at"].isoformat(),
+            "read_at": None,
+        },
+    })
+
+
 async def _safe_notify(notify: Notify | None, event: dict) -> None:
     """Сломанная шина не должна стоить нам сообщения клиента."""
     if notify is None:
@@ -193,11 +226,10 @@ async def _handle_free_text(
 
     ticket = await q.get_open_ticket(pool, user_id)
     if ticket is not None:
-        await q.add_message(pool, ticket["id"], "in", text, items, message.get("id"))
-        await _safe_notify(notify, {
-            "type": "message", "ticket_id": ticket["id"], "user_id": user_id,
-            "text": text, "attachments": items,
-        })
+        message_id = await q.add_message(
+            pool, ticket["id"], "in", text, items, message.get("id")
+        )
+        await _notify_message(notify, pool, ticket["id"], user_id, message_id)
         return
 
     user = await q.get_user(pool, user_id)
@@ -206,13 +238,12 @@ async def _handle_free_text(
         return
 
     ticket_id = await q.create_ticket(pool, user_id)
-    await q.add_message(pool, ticket_id, "in", text, items, message.get("id"))
+    message_id = await q.add_message(
+        pool, ticket_id, "in", text, items, message.get("id")
+    )
     await q.set_user_state(pool, user_id, STATE_IDLE)
 
-    await _safe_notify(notify, {
-        "type": "message", "ticket_id": ticket_id, "user_id": user_id,
-        "text": text, "attachments": items,
-    })
+    await _notify_message(notify, pool, ticket_id, user_id, message_id)
 
     await outbox.enqueue(
         pool, peer_id, texts.TICKET_CREATED.format(id=ticket_id),

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import asyncpg
@@ -9,6 +10,10 @@ import asyncpg
 logger = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+# Только строгое NNN_имя.sql. Всё остальное игнорируем: синхронизация папок
+# плодит копии вида «001_init 2.sql», и накатывание такой копии роняет старт.
+MIGRATION_NAME = re.compile(r"^\d{3}_[a-z0-9_]+\.sql$")
 
 
 async def _register_codecs(conn: asyncpg.Connection) -> None:
@@ -40,6 +45,9 @@ async def apply_migrations(pool: asyncpg.Pool) -> list[str]:
 
         applied: list[str] = []
         for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            if not MIGRATION_NAME.match(path.name):
+                logger.debug("пропускаем файл, не похожий на миграцию: %s", path.name)
+                continue
             if path.name in done:
                 continue
             # Миграция и отметка о ней — в одной транзакции, иначе половинчатое состояние.

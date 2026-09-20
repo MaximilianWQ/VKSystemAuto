@@ -16,6 +16,10 @@ from app.db.pool import apply_migrations, create_pool
 
 TEST_DB = "vkbot_test"
 
+# Синхронизация папки плодит копии вида «test_foo 2.py». Это не наши файлы и не
+# в git, но pytest их собирает и падает на повторном создании таблиц.
+collect_ignore_glob = ["* [0-9].py", "*/* [0-9].py"]
+
 
 @pytest.fixture(scope="session")
 def dsn() -> str:
