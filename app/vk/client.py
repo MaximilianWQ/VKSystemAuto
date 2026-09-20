@@ -40,6 +40,14 @@ class VKClient:
             raise VKCallError(code=exc.code, method=method) from None
         return raw.get("response", raw)
 
+    def api_for_uploads(self):
+        """Аплоадеры vkbottle работают с объектом API напрямую.
+
+        Ограничение скорости на них не распространяется: загрузок единицы,
+        и делает их живой человек.
+        """
+        return self._api
+
 
 def build_client(cfg: Config) -> VKClient:
     return VKClient(

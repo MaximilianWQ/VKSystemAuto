@@ -52,10 +52,12 @@
 - [ ] **Step 1: Добавить зависимости**
 
 ```bash
-uv add webauthn pywebpush
+uv add webauthn pywebpush python-multipart
 ```
 
-Ожидаемые версии: `webauthn==3.0.0`, `pywebpush==2.5.0`.
+Ожидаемые версии: `webauthn==3.0.0`, `pywebpush==2.5.0`. `python-multipart` —
+боевая зависимость: без неё FastAPI не разбирает multipart и падает на первом
+же запросе загрузки файла.
 
 - [ ] **Step 2: Написать падающий тест**
 

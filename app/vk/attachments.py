@@ -134,3 +134,41 @@ def describe(items: list[dict]) -> str:
         forms = RUSSIAN_NAMES.get(kind, RUSSIAN_NAMES["unsupported"])
         parts.append(forms[0] if count == 1 else f"{count} {_plural(count, forms)}")
     return ", ".join(parts)
+
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# Гифку ВК показывает документом, а не фото, поэтому она сюда не входит.
+PHOTO_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/webp")
+PHOTO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def pick_uploader(content_type: str, filename: str) -> str:
+    """Фото или документ. Ошибка в выборе даёт нечитаемое вложение у клиента."""
+    if (content_type or "").lower() in PHOTO_TYPES:
+        return "photo"
+    if filename.lower().endswith(PHOTO_EXTENSIONS):
+        return "photo"
+    return "doc"
+
+
+def _photo_uploader(api):
+    from vkbottle import PhotoMessageUploader
+
+    return PhotoMessageUploader(api)
+
+
+def _doc_uploader(api):
+    from vkbottle import DocMessagesUploader
+
+    return DocMessagesUploader(api)
+
+
+async def upload_photo(api, peer_id: int, data: bytes, filename: str) -> str:
+    return await _photo_uploader(api).upload(file_source=data, peer_id=peer_id)
+
+
+async def upload_doc(api, peer_id: int, data: bytes, filename: str) -> str:
+    return await _doc_uploader(api).upload(
+        file_source=data, peer_id=peer_id, title=filename
+    )
