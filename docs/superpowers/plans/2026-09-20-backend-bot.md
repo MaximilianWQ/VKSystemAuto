@@ -29,6 +29,10 @@
 - Токены, `VK_SECRET_KEY` и тексты сообщений пользователей не логировать. В логи ошибок VK API идут только код и метод.
 - Каждая задача заканчивается коммитом. Сообщения коммитов на русском, в повелительном наклонении.
 - Реальных запросов к VK API в тестах нет — только замоканный клиент.
+- Postgres для тестов приносит пакет `pgserver`: ни brew, ни docker, ни системного сервиса.
+- Колонки `jsonb` читаются и пишутся обычными `dict`/`list`. Кодеки регистрируются
+  в `create_pool`; без них asyncpg отдаёт jsonb строкой. Ручной `json.dumps` и каст
+  `::jsonb` в запросах не нужны и ломают кодек двойным кодированием.
 
 ---
 
@@ -74,6 +78,7 @@ dev = [
     "ruff>=0.8",
     "locust>=2.32",
     "httpx>=0.28",
+    "pgserver>=0.1.4",
 ]
 
 [tool.pytest.ini_options]
@@ -364,22 +369,44 @@ async def test_ticket_status_is_constrained(pool):
 `tests/conftest.py`:
 
 ```python
-import os
+"""Постгрес для тестов поднимается из пакета pgserver.
 
-import asyncpg
+Системный Postgres не нужен: ни brew, ни docker, ни запущенного сервиса.
+Это же делает набор тестов воспроизводимым в CI.
+"""
+
+import os
+import pathlib
+import tempfile
+
+import pgserver
+import pytest
 import pytest_asyncio
 
-from app.db.pool import apply_migrations
+from app.db.pool import apply_migrations, create_pool
 
-TEST_DSN = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/vkbot_test"
-)
+TEST_DB = "vkbot_test"
+
+
+@pytest.fixture(scope="session")
+def dsn() -> str:
+    """Один сервер на весь прогон: старт занимает пару секунд."""
+    override = os.environ.get("TEST_DATABASE_URL")
+    if override:
+        return override
+
+    data_dir = pathlib.Path(tempfile.gettempdir()) / "vkbot-pgserver"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    server = pgserver.get_server(str(data_dir))
+    server.psql(f"DROP DATABASE IF EXISTS {TEST_DB};")
+    server.psql(f"CREATE DATABASE {TEST_DB};")
+    return server.get_uri(database=TEST_DB)
 
 
 @pytest_asyncio.fixture
-async def pool():
+async def pool(dsn):
     """Чистая база на каждый тест: дропаем схему, накатываем миграции заново."""
-    conn_pool = await asyncpg.create_pool(TEST_DSN, min_size=1, max_size=5)
+    conn_pool = await create_pool(dsn)
     async with conn_pool.acquire() as conn:
         await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
     await apply_migrations(conn_pool)
@@ -389,13 +416,9 @@ async def pool():
         await conn_pool.close()
 ```
 
-- [ ] **Step 2: Поднять Postgres для тестов и прогнать тест**
+- [ ] **Step 2: Прогнать тест**
 
-```bash
-# Postgres должен быть доступен локально. Если его нет:
-brew install postgresql@16 && brew services start postgresql@16
-createdb vkbot_test 2>/dev/null || true
-```
+Postgres ставить не нужно — `pgserver` приносит его с собой и поднимает на unix-сокете.
 
 Run: `uv run pytest tests/test_migrations.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.db'`
@@ -519,6 +542,7 @@ CREATE TABLE setup_tokens (
 ```python
 """Пул соединений и накатывание SQL-миграций при старте."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -529,8 +553,21 @@ logger = logging.getLogger(__name__)
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
+async def _register_codecs(conn: asyncpg.Connection) -> None:
+    """Без этого asyncpg отдаёт jsonb строкой, и весь код разбирает JSON руками.
+
+    С кодеком в запросы передаются обычные dict и list, а обратно приходят они же.
+    """
+    for type_name in ("json", "jsonb"):
+        await conn.set_type_codec(
+            type_name, encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+        )
+
+
 async def create_pool(dsn: str) -> asyncpg.Pool:
-    return await asyncpg.create_pool(dsn, min_size=2, max_size=10, command_timeout=30)
+    return await asyncpg.create_pool(
+        dsn, min_size=2, max_size=10, command_timeout=30, init=_register_codecs
+    )
 
 
 async def apply_migrations(pool: asyncpg.Pool) -> list[str]:
@@ -715,9 +752,11 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'app.db.queries'`
 `app/db/queries.py`:
 
 ```python
-"""Все SQL-запросы приложения. Никакого SQL за пределами этого модуля."""
+"""Все SQL-запросы приложения. Никакого SQL за пределами этого модуля.
 
-import json
+jsonb передаётся и принимается обычными dict и list: кодеки зарегистрированы
+в create_pool, поэтому json.dumps здесь не нужен.
+"""
 
 import asyncpg
 
@@ -751,8 +790,8 @@ async def set_user_state(
     pool: asyncpg.Pool, vk_id: int, state: str, state_data: dict | None = None
 ) -> None:
     await pool.execute(
-        "UPDATE users SET state = $2, state_data = $3::jsonb WHERE vk_id = $1",
-        vk_id, state, json.dumps(state_data or {}),
+        "UPDATE users SET state = $2, state_data = $3 WHERE vk_id = $1",
+        vk_id, state, state_data or {},
     )
 
 
@@ -807,10 +846,10 @@ async def add_message(
             """
             INSERT INTO ticket_messages
                 (ticket_id, direction, text, attachments, vk_message_id)
-            VALUES ($1, $2, $3, $4::jsonb, $5)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id
             """,
-            ticket_id, direction, text, json.dumps(attachments or []), vk_message_id,
+            ticket_id, direction, text, attachments or [], vk_message_id,
         )
         await conn.execute(
             """
@@ -1288,7 +1327,6 @@ Railway перезапускает процесс в любой момент, п
 """
 
 import asyncio
-import json
 import logging
 import secrets
 
@@ -1328,9 +1366,9 @@ async def enqueue(
         payload["keyboard"] = keyboard
 
     return await pool.fetchval(
-        "INSERT INTO outbox (peer_id, payload, random_id) VALUES ($1, $2::jsonb, $3)"
+        "INSERT INTO outbox (peer_id, payload, random_id) VALUES ($1, $2, $3)"
         " RETURNING id",
-        peer_id, json.dumps(payload), secrets.randbelow(2**31 - 1) + 1,
+        peer_id, payload, secrets.randbelow(2**31 - 1) + 1,
     )
 
 
@@ -1368,9 +1406,6 @@ async def process_batch(pool: asyncpg.Pool, client, limit: int = 20) -> int:
 
 async def _send_one(pool: asyncpg.Pool, client, row: asyncpg.Record) -> None:
     payload = row["payload"]
-    if isinstance(payload, str):
-        payload = json.loads(payload)
-
     try:
         await client.call(
             "messages.send",
@@ -3396,7 +3431,6 @@ Expected: все зелёные
 - [ ] **Step 6: Проверить реальный запуск в режиме long poll**
 
 ```bash
-createdb vkbot_dev 2>/dev/null || true
 VK_GROUP_TOKEN="$(grep '^VK_GROUP_TOKEN=' .env | cut -d= -f2-)" \
 VK_GROUP_ID=... VK_CONFIRMATION_CODE=x VK_SECRET_KEY=x ADMIN_ID=... \
 DATABASE_URL=postgresql://localhost/vkbot_dev SESSION_SECRET=$(openssl rand -hex 32) \
@@ -3705,7 +3739,6 @@ class CallbackUser(HttpUser):
 
 ## Запуск
 
-    createdb vkbot_test 2>/dev/null || true
     uv run pytest loadtests -m load -v
 
 ## Обстрел по HTTP
@@ -3836,7 +3869,6 @@ __pycache__
 
     uv venv --python 3.12
     uv sync
-    createdb vkbot_dev
     cp .env.example .env    # заполнить значения
     uv run uvicorn app.main:build_from_env --factory --reload --port 8000
 
@@ -3844,8 +3876,7 @@ __pycache__
 
 ## Тесты
 
-    createdb vkbot_test
-    uv run pytest                    # обычные
+    uv run pytest                    # обычные, Postgres поднимается сам
     uv run pytest loadtests -m load  # нагрузочные
     uv run ruff check .
 
