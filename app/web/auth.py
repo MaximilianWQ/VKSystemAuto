@@ -146,7 +146,7 @@ async def login_options(request: Request) -> JSONResponse:
     if not registered:
         raise HTTPException(
             status_code=409,
-            detail="ключей нет, получите ссылку командой /link в сообществе",
+            detail="ключей нет, напишите боту сообщества слово «дашборд» — он пришлёт ссылку",
         )
 
     options = generate_authentication_options(

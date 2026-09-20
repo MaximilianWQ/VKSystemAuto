@@ -40,7 +40,7 @@ async def test_login_options_without_any_key_is_refused(client, pool):
     """Пока ключ не зарегистрирован, входить нечем — и это надо сказать прямо."""
     response = await client.post("/api/auth/login/options")
     assert response.status_code == 409
-    assert "/link" in response.json()["detail"]
+    assert "дашборд" in response.json()["detail"]
 
 
 async def test_login_options_list_registered_keys(client, pool):
