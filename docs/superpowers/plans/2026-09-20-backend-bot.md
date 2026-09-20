@@ -320,12 +320,12 @@ git commit -m "Добавить каркас проекта и валидаци�
 - Create: `app/db/__init__.py`
 - Create: `app/db/pool.py`
 - Create: `app/db/migrations/001_init.sql`
-- Create: `tests/conftest.py`
+- Create: `conftest.py` (в корне, чтобы фикстуры были видны и из `loadtests/`)
 - Create: `tests/test_migrations.py`
 
 **Interfaces:**
 - Consumes: `app.config.Config` из Task 1.
-- Produces: `app.db.pool.create_pool(dsn: str) -> asyncpg.Pool`, `app.db.pool.apply_migrations(pool: asyncpg.Pool) -> list[str]` (возвращает имена применённых файлов). Фикстура `pool` в `tests/conftest.py`, дающая чистую БД на каждый тест.
+- Produces: `app.db.pool.create_pool(dsn: str) -> asyncpg.Pool`, `app.db.pool.apply_migrations(pool: asyncpg.Pool) -> list[str]` (возвращает имена применённых файлов). Фикстура `pool` в корневом `conftest.py`, дающая чистую БД на каждый тест.
 
 - [ ] **Step 1: Написать падающий тест**
 
@@ -368,7 +368,7 @@ async def test_ticket_status_is_constrained(pool):
         )
 ```
 
-`tests/conftest.py`:
+`conftest.py` (в корне проекта):
 
 ```python
 """Постгрес для тестов поднимается из пакета pgserver.
@@ -605,7 +605,7 @@ Expected: 4 passed
 - [ ] **Step 6: Коммит**
 
 ```bash
-git add app/db tests/conftest.py tests/test_migrations.py
+git add app/db conftest.py tests/test_migrations.py
 git commit -m "Добавить пул Postgres и начальную миграцию схемы"
 ```
 
@@ -3660,8 +3660,11 @@ async def test_restart_loses_nothing_and_duplicates_nothing(pool):
     for i in range(total):
         await outbox.enqueue(pool, peer_id=1, text=str(i))
 
+    # Клиент один на весь цикл: пересоздание сбрасывало бы счётчик, и падение
+    # никогда не наступало бы.
+    flaky = FlakyClient(fail_after=20)
     with pytest.raises(asyncio.CancelledError):
-        while await outbox.process_batch(pool, FlakyClient(fail_after=20), limit=10):
+        while await outbox.process_batch(pool, flaky, limit=10):
             pass
 
     # Перезапуск: возвращаем зависшие строки и дорабатываем очередь.
