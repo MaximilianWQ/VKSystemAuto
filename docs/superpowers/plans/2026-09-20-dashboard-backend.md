@@ -2793,71 +2793,81 @@ git commit -m "Добавить прокси входящих вложений �
 `tests/test_ws.py`:
 
 ```python
+"""Тесты WebSocket.
+
+TestClient крутит приложение в своём потоке и своём цикле событий, а пул
+asyncpg привязан к циклу pytest — работать с настоящей базой отсюда нельзя.
+Поэтому проверку сессии подменяем заглушкой: предмет этих тестов — авторизация
+сокета, учёт подписчиков и ping/pong, а не драйвер БД. Доставка события
+подписчику покрыта тестами шины в Task 6.
+"""
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from websockets.exceptions import WebSocketException
 
 from app.web import sessions, ws
 from app.web.bus import Bus
 
+VALID = "valid-token"
+
 
 @pytest.fixture
-async def app_with_ws(pool):
+def app_with_ws(monkeypatch):
+    async def fake_verify(pool, token):
+        return {"id": "session"} if token == VALID else None
+
+    monkeypatch.setattr(sessions, "verify", fake_verify)
+
     app = FastAPI()
     app.include_router(ws.router)
-    app.state.pool = pool
+    app.state.pool = None
     app.state.bus = Bus()
-    token = await sessions.issue(pool)
-    return app, token
+    return app
 
 
-async def test_rejects_without_cookie(app_with_ws):
-    app, _ = app_with_ws
-    with TestClient(app) as http, pytest.raises(Exception):
-        with http.websocket_connect("/ws"):
-            pass
+def test_rejects_without_cookie(app_with_ws):
+    with TestClient(app_with_ws) as http:
+        with pytest.raises((WebSocketException, Exception)):  # noqa: B017
+            with http.websocket_connect("/ws"):
+                pass
+    assert app_with_ws.state.bus.subscribers == 0
 
 
-async def test_rejects_bad_cookie(app_with_ws):
-    app, _ = app_with_ws
-    with TestClient(app) as http, pytest.raises(Exception):
+def test_rejects_bad_cookie(app_with_ws):
+    with TestClient(app_with_ws) as http:
         http.cookies.set(sessions.COOKIE_NAME, "garbage")
-        with http.websocket_connect("/ws"):
-            pass
+        with pytest.raises((WebSocketException, Exception)):  # noqa: B017
+            with http.websocket_connect("/ws"):
+                pass
+    assert app_with_ws.state.bus.subscribers == 0
 
 
-async def test_accepts_valid_cookie_and_greets(app_with_ws):
-    app, token = app_with_ws
-    with TestClient(app) as http:
-        http.cookies.set(sessions.COOKIE_NAME, token)
+def test_accepts_valid_cookie_and_greets(app_with_ws):
+    with TestClient(app_with_ws) as http:
+        http.cookies.set(sessions.COOKIE_NAME, VALID)
         with http.websocket_connect("/ws") as socket:
             assert socket.receive_json()["type"] == "ready"
 
 
-async def test_subscriber_registered_and_released(app_with_ws):
-    app, token = app_with_ws
-    with TestClient(app) as http:
-        http.cookies.set(sessions.COOKIE_NAME, token)
+def test_subscriber_registered_and_released(app_with_ws):
+    with TestClient(app_with_ws) as http:
+        http.cookies.set(sessions.COOKIE_NAME, VALID)
         with http.websocket_connect("/ws") as socket:
             socket.receive_json()
-            assert app.state.bus.subscribers == 1
-    assert app.state.bus.subscribers == 0
+            assert app_with_ws.state.bus.subscribers == 1
+    assert app_with_ws.state.bus.subscribers == 0
 
 
-async def test_ping_pong(app_with_ws):
-    app, token = app_with_ws
-    with TestClient(app) as http:
-        http.cookies.set(sessions.COOKIE_NAME, token)
+def test_ping_pong(app_with_ws):
+    with TestClient(app_with_ws) as http:
+        http.cookies.set(sessions.COOKIE_NAME, VALID)
         with http.websocket_connect("/ws") as socket:
             socket.receive_json()
             socket.send_json({"type": "ping"})
             assert socket.receive_json()["type"] == "pong"
 ```
-
-Сквозная доставка события в сокет здесь не проверяется: `TestClient` крутит свой
-цикл событий в отдельном потоке, и публикация в шину из теста в него не попадает.
-Доставка покрыта на уровне шины в Task 6, а здесь — подключение, авторизация,
-регистрация и снятие подписчика, ping/pong.
 
 - [ ] **Step 2: Прогнать, убедиться что падает**
 
