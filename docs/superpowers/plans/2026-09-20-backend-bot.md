@@ -3172,8 +3172,9 @@ ENV = {
 
 
 def test_create_app_registers_callback_route():
+    """Роутер включается лениво, поэтому пути смотрим в схеме, а не в app.routes."""
     app = create_app(load_config(ENV))
-    paths = {r.path for r in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/vk/callback" in paths
     assert "/healthz" in paths
 
