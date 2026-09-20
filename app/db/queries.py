@@ -140,3 +140,79 @@ async def cleanup_old_events(pool: asyncpg.Pool) -> int:
         "DELETE FROM processed_events WHERE created_at < now() - interval '1 day'"
     )
     return int(result.split()[-1])
+
+
+async def list_dialogs(
+    pool: asyncpg.Pool, status: str = "all", limit: int = 100
+) -> list[asyncpg.Record]:
+    """Очередь оператора: свежие сверху, с превью и временем ожидания."""
+    condition = {
+        "open": "t.status <> 'closed'",
+        "closed": "t.status = 'closed'",
+    }.get(status, "TRUE")
+
+    return await pool.fetch(
+        f"""
+        SELECT
+            t.id, t.status, t.unread_count, t.created_at, t.last_message_at,
+            t.first_reply_at, t.rating,
+            u.vk_id, u.first_name, u.last_name, u.photo_url, u.can_write,
+            (SELECT m.text FROM ticket_messages m
+              WHERE m.ticket_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS preview,
+            (SELECT m.attachments FROM ticket_messages m
+              WHERE m.ticket_id = t.id ORDER BY m.created_at DESC LIMIT 1)
+              AS preview_attachments,
+            EXTRACT(EPOCH FROM (now() - t.last_message_at))::bigint AS waiting_seconds
+        FROM tickets t
+        JOIN users u ON u.vk_id = t.user_id
+        WHERE {condition}
+        ORDER BY t.last_message_at DESC
+        LIMIT $1
+        """,  # noqa: S608 — condition берётся из замкнутого словаря, не из ввода
+        limit,
+    )
+
+
+async def get_ticket(pool: asyncpg.Pool, ticket_id: int) -> asyncpg.Record | None:
+    return await pool.fetchrow(
+        "SELECT t.*, u.first_name, u.last_name, u.photo_url, u.can_write"
+        " FROM tickets t JOIN users u ON u.vk_id = t.user_id WHERE t.id = $1",
+        ticket_id,
+    )
+
+
+async def list_messages(
+    pool: asyncpg.Pool, ticket_id: int, limit: int = 200
+) -> list[asyncpg.Record]:
+    return await pool.fetch(
+        "SELECT * FROM ticket_messages WHERE ticket_id = $1"
+        " ORDER BY created_at, id LIMIT $2",
+        ticket_id, limit,
+    )
+
+
+async def mark_read(pool: asyncpg.Pool, ticket_id: int) -> None:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute(
+            "UPDATE ticket_messages SET read_at = now()"
+            " WHERE ticket_id = $1 AND direction = 'in' AND read_at IS NULL",
+            ticket_id,
+        )
+        await conn.execute(
+            "UPDATE tickets SET unread_count = 0 WHERE id = $1", ticket_id
+        )
+
+
+async def stats(pool: asyncpg.Pool) -> asyncpg.Record:
+    return await pool.fetchrow(
+        """
+        SELECT
+            count(*) FILTER (WHERE created_at > now() - interval '1 day')  AS day,
+            count(*) FILTER (WHERE created_at > now() - interval '7 days') AS week,
+            count(*) FILTER (WHERE status <> 'closed')                     AS open_now,
+            avg(EXTRACT(EPOCH FROM (first_reply_at - created_at)))
+                FILTER (WHERE first_reply_at IS NOT NULL)      AS avg_first_reply,
+            avg(rating) FILTER (WHERE rating IS NOT NULL)      AS avg_rating
+        FROM tickets
+        """
+    )
