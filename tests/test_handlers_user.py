@@ -215,3 +215,37 @@ async def test_text_commands_work_without_keyboard(pool):
 async def test_unknown_event_type_is_ignored(pool):
     await handle_event(pool, CFG, {"type": "group_join", "object": {}})
     assert await sent(pool) == []
+
+
+ADMIN_CFG = load_config({**ENV, "PUBLIC_URL": "https://bot.example"})
+
+
+async def test_link_command_sends_one_time_url_to_admin(pool):
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="/link"))
+    body = (await sent(pool))[0]["message"]
+    assert "https://bot.example/setup?token=" in body
+    assert await pool.fetchval("SELECT count(*) FROM setup_tokens") == 1
+
+
+async def test_link_command_ignored_from_non_admin(pool):
+    """Чужой /link не должен ни выдавать токен, ни намекать на его существование."""
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=5, text="/link"))
+    assert await pool.fetchval("SELECT count(*) FROM setup_tokens") == 0
+    messages = await sent(pool)
+    assert all("setup?token=" not in m["message"] for m in messages)
+
+
+async def test_link_command_without_public_url_reports_problem(pool):
+    await handle_event(pool, CFG, message_new(from_id=777, text="/link"))
+    assert "PUBLIC_URL" in (await sent(pool))[0]["message"]
+
+
+async def test_each_link_issues_a_new_token(pool):
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="/link"))
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="/link"))
+    assert await pool.fetchval("SELECT count(*) FROM setup_tokens") == 2
+
+
+async def test_admin_can_still_use_the_bot_normally(pool):
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="Начать"))
+    assert "keyboard" in (await sent(pool))[0]

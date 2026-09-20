@@ -8,7 +8,7 @@ import logging
 
 import asyncpg
 
-from app import texts
+from app import setup_tokens, texts
 from app.config import Config
 from app.db import queries as q
 from app.vk import keyboards as kb
@@ -55,6 +55,10 @@ async def _handle_message(pool: asyncpg.Pool, cfg: Config, message: dict) -> Non
     payload = _parse_payload(message.get("payload"))
     command = payload.get("cmd", "")
 
+    if user_id == cfg.admin_id and text == "/link":
+        await _send_setup_link(pool, cfg, peer_id)
+        return
+
     if command == "faq":
         await _send_faq_list(pool, peer_id)
     elif command == "faq_item":
@@ -71,6 +75,15 @@ async def _handle_message(pool: asyncpg.Pool, cfg: Config, message: dict) -> Non
         await _send_menu(pool, peer_id)
     else:
         await _handle_free_text(pool, cfg, user_id, peer_id, message, text)
+
+
+async def _send_setup_link(pool: asyncpg.Pool, cfg: Config, peer_id: int) -> None:
+    if not cfg.public_url:
+        await outbox.enqueue(pool, peer_id, texts.SETUP_LINK_NO_URL)
+        return
+    token = await setup_tokens.issue(pool)
+    url = f"{cfg.public_url}/setup?token={token}"
+    await outbox.enqueue(pool, peer_id, texts.SETUP_LINK.format(url=url))
 
 
 async def _send_menu(pool: asyncpg.Pool, peer_id: int) -> None:
