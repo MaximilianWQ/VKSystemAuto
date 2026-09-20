@@ -22,6 +22,8 @@
   - `PhotoMessageUploader.upload(file_source, peer_id=None, **params) -> str`
   - `DocMessagesUploader.upload(file_source, group_id=None, peer_id=None, **params) -> str`
   - `KeyboardButtonColor` содержит ровно `PRIMARY`, `SECONDARY`, `NEGATIVE`, `POSITIVE`
+  - `VKAPIError[code](error_msg="...")` — конструктор принимает **только** именованные
+    аргументы; `VKAPIError[6]("текст")` падает с TypeError
 - `VK_API_VERSION` по умолчанию `5.199`.
 - Любая исходящая отправка — только через `outbox.enqueue(...)`. Прямой вызов `messages.send` из обработчика запрещён.
 - `random_id` генерируется один раз при постановке в очередь и не меняется при ретраях.
@@ -318,12 +320,12 @@ git commit -m "Добавить каркас проекта и валидаци�
 - Create: `app/db/__init__.py`
 - Create: `app/db/pool.py`
 - Create: `app/db/migrations/001_init.sql`
-- Create: `tests/conftest.py`
+- Create: `conftest.py` (в корне, чтобы фикстуры были видны и из `loadtests/`)
 - Create: `tests/test_migrations.py`
 
 **Interfaces:**
 - Consumes: `app.config.Config` из Task 1.
-- Produces: `app.db.pool.create_pool(dsn: str) -> asyncpg.Pool`, `app.db.pool.apply_migrations(pool: asyncpg.Pool) -> list[str]` (возвращает имена применённых файлов). Фикстура `pool` в `tests/conftest.py`, дающая чистую БД на каждый тест.
+- Produces: `app.db.pool.create_pool(dsn: str) -> asyncpg.Pool`, `app.db.pool.apply_migrations(pool: asyncpg.Pool) -> list[str]` (возвращает имена применённых файлов). Фикстура `pool` в корневом `conftest.py`, дающая чистую БД на каждый тест.
 
 - [ ] **Step 1: Написать падающий тест**
 
@@ -366,7 +368,7 @@ async def test_ticket_status_is_constrained(pool):
         )
 ```
 
-`tests/conftest.py`:
+`conftest.py` (в корне проекта):
 
 ```python
 """Постгрес для тестов поднимается из пакета pgserver.
@@ -603,7 +605,7 @@ Expected: 4 passed
 - [ ] **Step 6: Коммит**
 
 ```bash
-git add app/db tests/conftest.py tests/test_migrations.py
+git add app/db conftest.py tests/test_migrations.py
 git commit -m "Добавить пул Postgres и начальную миграцию схемы"
 ```
 
@@ -1057,7 +1059,7 @@ async def test_drops_none_params():
 
 
 async def test_wraps_vk_error_with_code_and_method():
-    api = FakeAPI(raises=VKAPIError[6]("too many requests"))
+    api = FakeAPI(raises=VKAPIError[6](error_msg="too many requests"))
     client = make_client(api)
     with pytest.raises(VKCallError) as exc:
         await client.call("messages.send", peer_id=1)
@@ -1066,7 +1068,7 @@ async def test_wraps_vk_error_with_code_and_method():
 
 
 async def test_error_text_carries_no_message_body():
-    api = FakeAPI(raises=VKAPIError[901]("нельзя писать"))
+    api = FakeAPI(raises=VKAPIError[901](error_msg="нельзя писать"))
     client = make_client(api)
     with pytest.raises(VKCallError) as exc:
         await client.call("messages.send", peer_id=1, message="секретный текст клиента")
@@ -1399,7 +1401,9 @@ async def process_batch(pool: asyncpg.Pool, client, limit: int = 20) -> int:
         limit,
     )
 
-    for row in rows:
+    # RETURNING не гарантирует порядок строк, даже когда подзапрос с ORDER BY id.
+    # Для переписки порядок важен, поэтому сортируем явно.
+    for row in sorted(rows, key=lambda r: r["id"]):
         await _send_one(pool, client, row)
     return len(rows)
 
@@ -2135,8 +2139,8 @@ def next_working_time(cfg: Config, now: datetime | None = None) -> str:
 
 ```python
 import json
-
-import pytest
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.config import load_config
 from app.db import queries as q
@@ -2148,7 +2152,12 @@ ENV = {
     "SESSION_SECRET": "s" * 32, "WORK_HOURS": "0-24",
 }
 CFG = load_config(ENV)
-NIGHT_CFG = load_config({**ENV, "WORK_HOURS": "10-11"})
+
+# Окно в один час, заведомо не совпадающее с текущим: иначе тест нерабочего
+# времени зелёный или красный в зависимости от часа запуска.
+_HOUR = datetime.now(ZoneInfo("Europe/Moscow")).hour
+CLOSED_START = (_HOUR + 3) % 22
+NIGHT_CFG = load_config({**ENV, "WORK_HOURS": f"{CLOSED_START}-{CLOSED_START + 1}"})
 
 
 def message_new(from_id=1, text="", payload=None, attachments=None, message_id=100):
@@ -2276,7 +2285,7 @@ async def test_off_hours_autoreply(pool):
     await handle_event(pool, NIGHT_CFG, message_new(payload={"cmd": "ticket_new"}))
     await handle_event(pool, NIGHT_CFG, message_new(text="проблема"))
     bodies = " ".join(m["message"] for m in await sent(pool))
-    assert "с 10:00" in bodies
+    assert f"с {CLOSED_START:02d}:00" in bodies
 
 
 async def test_ticket_list_when_empty(pool):
@@ -2755,7 +2764,7 @@ async def test_handler_failure_does_not_break_response(client, pool):
 async def test_malformed_json_returns_400(client):
     http, _ = client
     response = await http.post(
-        "/vk/callback", content=b"{не json", headers={"content-type": "application/json"}
+        "/vk/callback", content="{не json".encode(), headers={"content-type": "application/json"}
     )
     assert response.status_code == 400
 
@@ -3163,8 +3172,9 @@ ENV = {
 
 
 def test_create_app_registers_callback_route():
+    """Роутер включается лениво, поэтому пути смотрим в схеме, а не в app.routes."""
     app = create_app(load_config(ENV))
-    paths = {r.path for r in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/vk/callback" in paths
     assert "/healthz" in paths
 
@@ -3650,8 +3660,11 @@ async def test_restart_loses_nothing_and_duplicates_nothing(pool):
     for i in range(total):
         await outbox.enqueue(pool, peer_id=1, text=str(i))
 
+    # Клиент один на весь цикл: пересоздание сбрасывало бы счётчик, и падение
+    # никогда не наступало бы.
+    flaky = FlakyClient(fail_after=20)
     with pytest.raises(asyncio.CancelledError):
-        while await outbox.process_batch(pool, FlakyClient(fail_after=20), limit=10):
+        while await outbox.process_batch(pool, flaky, limit=10):
             pass
 
     # Перезапуск: возвращаем зависшие строки и дорабатываем очередь.

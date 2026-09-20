@@ -1,0 +1,45 @@
+[project]
+name = "vk-support-bot"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "vkbottle==4.11.0",
+    "asyncpg>=0.30",
+    "webauthn>=3.0.0",
+    "pywebpush>=2.5.0",
+    "python-multipart>=0.0.32",
+    "httpx>=0.28.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "locust>=2.32",
+    "pgserver>=0.1.4",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["load: нагрузочные проверки, запускаются отдельно"]
+addopts = "-m 'not load'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Depends/File/Query в значениях по умолчанию — штатная идиома FastAPI,
+# а не забытый вызов в аргументе.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]

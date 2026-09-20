@@ -1,0 +1,17 @@
+{
+  "name": "Поддержка Atlas Secure",
+  "short_name": "Поддержка",
+  "description": "Дашборд оператора поддержки ВКонтакте",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F2F1EF",
+  "theme_color": "#F2F1EF",
+  "lang": "ru",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
