@@ -311,3 +311,39 @@ async def test_works_without_notify(pool):
     await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}))
     await handle_event(pool, CFG, message_new(text="проблема"))
     assert await q.get_open_ticket(pool, 1) is not None
+
+
+async def test_dashboard_word_sends_link(pool):
+    """Команду должно быть легко набрать с телефона, без слешей и латиницы."""
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="дашборд"))
+    assert "https://bot.example/setup?token=" in (await sent(pool))[0]["message"]
+
+
+async def test_dashboard_word_is_case_insensitive(pool):
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="Дашборд"))
+    assert "setup?token=" in (await sent(pool))[0]["message"]
+
+
+async def test_dashboard_word_tolerates_spaces(pool):
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="  дашборд  "))
+    assert "setup?token=" in (await sent(pool))[0]["message"]
+
+
+async def test_slash_link_still_works(pool):
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=777, text="/link"))
+    assert "setup?token=" in (await sent(pool))[0]["message"]
+
+
+async def test_dashboard_word_ignored_from_non_admin(pool):
+    """Обычный пользователь не должен ни получить ссылку, ни узнать о её существовании."""
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=5, text="дашборд"))
+    assert await pool.fetchval("SELECT count(*) FROM setup_tokens") == 0
+    assert all("setup?token=" not in m["message"] for m in await sent(pool))
+
+
+async def test_dashboard_word_from_non_admin_falls_back_to_menu(pool):
+    """Для чужого это просто непонятный текст — показываем меню, а не молчим."""
+    await handle_event(pool, ADMIN_CFG, message_new(from_id=5, text="дашборд"))
+    messages = await sent(pool)
+    assert len(messages) == 1
+    assert "keyboard" in messages[0]

@@ -24,6 +24,10 @@ STATE_AWAITING_PROBLEM = "awaiting_problem"
 
 MENU_WORDS = {"начать", "меню", "start", "старт", "привет"}
 
+# Команда входа в дашборд. Работает только для ADMIN_ID; для всех остальных это
+# обычный текст, на который бот отвечает меню — существование команды не выдаём.
+DASHBOARD_WORDS = {"дашборд", "/дашборд", "/link", "dashboard", "/dashboard"}
+
 
 def _parse_payload(raw: str | None) -> dict:
     if not raw:
@@ -73,7 +77,7 @@ async def _handle_message(
     payload = _parse_payload(message.get("payload"))
     command = payload.get("cmd", "")
 
-    if user_id == cfg.admin_id and text == "/link":
+    if user_id == cfg.admin_id and text.lower() in DASHBOARD_WORDS:
         await _send_setup_link(pool, cfg, peer_id)
         return
 
