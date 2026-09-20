@@ -79,6 +79,14 @@ export type Attachment = {
   raw_type?: string
 }
 
+export type Operator = {
+  name: string
+  role: string
+  tier: 'operator' | 'lead'
+  signature: string
+  taken_at: string | null
+}
+
 export type Dialog = {
   id: number
   status: 'open' | 'in_progress' | 'closed'
@@ -89,6 +97,7 @@ export type Dialog = {
   created_at: string
   last_message_at: string
   rating: number | null
+  operator: Operator | null
   user: VkUser
 }
 
@@ -102,7 +111,13 @@ export type Message = {
 }
 
 export type Thread = {
-  ticket: { id: number; status: string; rating: number | null; user: VkUser }
+  ticket: {
+    id: number
+    status: 'open' | 'in_progress' | 'closed'
+    rating: number | null
+    operator: Operator | null
+    user: VkUser
+  }
   messages: Message[]
 }
 
@@ -112,6 +127,8 @@ export type Stats = {
   open_now: number
   avg_first_reply_seconds: number | null
   avg_rating: number | null
+  ratings: Record<string, number>
+  ratings_total: number
 }
 
 export type PasskeyInfo = {

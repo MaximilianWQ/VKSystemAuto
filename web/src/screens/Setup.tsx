@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { motion } from 'motion/react'
 import { ApiError } from '../api'
 import { passkeySupported, registerPasskey } from '../auth'
+import { Button, Panel } from '../components/ui'
 
 const defaultName = () => {
   const agent = navigator.userAgent
@@ -38,60 +38,49 @@ export function Setup({ token, onDone }: { token: string; onDone: () => void }) 
   }
 
   return (
-    <div className="h-full grid place-items-center p-6" style={{ background: 'var(--bg)' }}>
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 340, damping: 30 }}
-        className="card w-full max-w-sm p-8"
-      >
-        <div
-          className="mx-auto mb-6 w-16 h-16 pill grid place-items-center text-2xl"
-          style={{ background: 'linear-gradient(145deg,#B9A7FF,#8EC5FF)' }}
-          aria-hidden
-        >
-          ✳︎
-        </div>
-        <h1 className="numeral text-[24px] mb-2 text-center">Новый ключ</h1>
-        <p className="text-[14px] mb-6 text-center" style={{ color: 'var(--muted)' }}>
+    <div className="h-full grid place-items-center px-4" style={{ background: 'var(--bg)' }}>
+      <Panel className="w-full max-w-[360px] p-6">
+        <h1 className="text-[16px] font-semibold">Новый ключ</h1>
+        <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>
           Ключ останется на этом устройстве. Ссылка работает один раз.
         </p>
 
-        <label className="block text-[13px] mb-2" style={{ color: 'var(--muted)' }}>
+        <label className="block mt-5 mb-1.5 text-[12px]" style={{ color: 'var(--muted)' }}>
           Название устройства
         </label>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="w-full h-11 px-4 mb-5 outline-none text-[15px]"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !busy) void create()
+          }}
+          className="w-full h-9 px-3 outline-none text-[14px]"
           style={{
-            background: 'var(--sunken)',
-            borderRadius: 'var(--radius-inner)',
+            background: 'var(--bg)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius)',
             color: 'var(--ink)',
           }}
         />
 
-        {!passkeySupported() ? (
-          <p className="text-[14px] text-center" style={{ color: '#D8412F' }}>
-            Этот браузер не поддерживает passkey.
-          </p>
-        ) : (
-          <button
-            onClick={create}
-            disabled={busy}
-            className="w-full pill h-12 font-medium text-[15px] transition-transform active:scale-[.97] disabled:opacity-50"
-            style={{ background: 'var(--ink)', color: 'var(--bg)' }}
-          >
-            {busy ? 'Создаём…' : 'Создать ключ и войти'}
-          </button>
-        )}
+        <div className="mt-4">
+          {!passkeySupported() ? (
+            <p className="text-[13px]" style={{ color: 'var(--alarm)' }}>
+              Этот браузер не поддерживает passkey.
+            </p>
+          ) : (
+            <Button onClick={create} disabled={busy} variant="primary" full>
+              {busy ? 'Создаём…' : 'Создать ключ и войти'}
+            </Button>
+          )}
+        </div>
 
         {error && (
-          <p className="mt-4 text-[13px] text-center" style={{ color: '#D8412F' }}>
+          <p className="mt-3 text-[12px]" style={{ color: 'var(--alarm)' }}>
             {error}
           </p>
         )}
-      </motion.div>
+      </Panel>
     </div>
   )
 }

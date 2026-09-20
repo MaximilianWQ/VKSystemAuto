@@ -2,9 +2,18 @@ import { useEffect, useState } from 'react'
 import { api, type PasskeyInfo } from '../api'
 import { logout } from '../auth'
 import { currentSubscription, disablePush, enablePush, isStandalone, pushSupported } from '../push'
+import { Button, Panel } from '../components/ui'
 
 function Row({ children }: { children: React.ReactNode }) {
-  return <div className="px-4 py-3.5 border-b hairline last:border-0">{children}</div>
+  return (
+    <div className="px-4 py-3" style={{ borderTop: '1px solid var(--line)' }}>
+      {children}
+    </div>
+  )
+}
+
+function Head({ children }: { children: React.ReactNode }) {
+  return <div className="px-4 py-3 text-[13px] font-semibold">{children}</div>
 }
 
 export function Settings({ onLoggedOut }: { onLoggedOut: () => void }) {
@@ -40,56 +49,51 @@ export function Settings({ onLoggedOut }: { onLoggedOut: () => void }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto quiet-scroll px-4 py-5 safe-top">
-      <h1 className="numeral text-[28px] mb-5">Настройки</h1>
+    <div className="h-full scroll px-4 py-4 safe-t">
+      <h1 className="text-[15px] font-semibold mb-3">Настройки</h1>
 
-      <div className="max-w-2xl flex flex-col gap-4">
-        <section className="card overflow-hidden">
-          <Row>
-            <div className="font-semibold text-[15px]">Уведомления</div>
-          </Row>
-
+      <div className="max-w-xl flex flex-col gap-2.5">
+        <Panel>
+          <Head>Уведомления</Head>
           {!standalone ? (
             /* На iOS пуши приходят только установленному приложению, поэтому
                вместо бесполезного переключателя показываем, что сделать. */
             <Row>
-              <p className="text-[14px] mb-1">Сначала установите приложение</p>
-              <p className="text-[13px]" style={{ color: 'var(--muted)' }}>
-                В Safari нажмите «Поделиться» → «На экран Домой», затем откройте
-                дашборд с домашнего экрана. Пуши работают только так — это
-                ограничение iOS, не наша настройка.
+              <div className="text-[13px] font-medium">Сначала установите приложение</div>
+              <p className="mt-1 text-[12px] leading-relaxed" style={{ color: 'var(--muted)' }}>
+                В Safari нажмите «Поделиться» → «На экран Домой», затем откройте дашборд
+                с домашнего экрана. Пуши работают только так — это ограничение iOS,
+                а не наша настройка.
               </p>
             </Row>
           ) : (
             <Row>
-              <label className="flex items-center gap-3">
+              <label className="flex items-center gap-2.5 text-[13px]">
                 <input
                   type="checkbox"
                   checked={pushOn}
                   disabled={busy || !canPush}
                   onChange={togglePush}
-                  className="w-5 h-5"
+                  className="w-4 h-4"
                 />
-                <span className="text-[15px]">Присылать пуш о новых сообщениях</span>
+                Присылать пуш о новых сообщениях
               </label>
               {note && (
-                <p className="mt-2 text-[13px]" style={{ color: '#D8412F' }}>
+                <p className="mt-2 text-[12px]" style={{ color: 'var(--alarm)' }}>
                   {note}
                 </p>
               )}
             </Row>
           )}
-        </section>
+        </Panel>
 
-        <section className="card overflow-hidden">
-          <Row>
-            <div className="font-semibold text-[15px]">Ключи входа</div>
-          </Row>
+        <Panel>
+          <Head>Ключи входа</Head>
           {keys.map((key) => (
             <Row key={key.id}>
               <div className="flex items-baseline gap-3">
-                <span className="text-[15px] flex-1">{key.name}</span>
-                <span className="text-[12px]" style={{ color: 'var(--muted)' }}>
+                <span className="text-[13px] flex-1">{key.name}</span>
+                <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>
                   {key.last_used_at
                     ? `вход ${new Date(key.last_used_at).toLocaleDateString('ru-RU')}`
                     : 'не использовался'}
@@ -98,23 +102,25 @@ export function Settings({ onLoggedOut }: { onLoggedOut: () => void }) {
             </Row>
           ))}
           <Row>
-            <p className="text-[13px]" style={{ color: 'var(--muted)' }}>
-              Чтобы добавить ключ на другом устройстве, напишите боту слово «дашборд» —
-              он пришлёт одноразовую ссылку.
+            <p className="text-[12px] leading-relaxed" style={{ color: 'var(--muted)' }}>
+              Ключ живёт на устройстве. Чтобы войти с другого телефона или компьютера,
+              напишите боту слово «дашборд» — придёт одноразовая ссылка, и там появится
+              отдельный ключ.
             </p>
           </Row>
-        </section>
+        </Panel>
 
-        <button
-          onClick={async () => {
-            await logout()
-            onLoggedOut()
-          }}
-          className="card px-4 py-3.5 text-left text-[15px] font-medium"
-          style={{ color: '#D8412F' }}
-        >
-          Выйти
-        </button>
+        <div>
+          <Button
+            onClick={async () => {
+              await logout()
+              onLoggedOut()
+            }}
+            variant="danger"
+          >
+            Выйти
+          </Button>
+        </div>
       </div>
     </div>
   )
