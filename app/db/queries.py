@@ -156,6 +156,7 @@ async def list_dialogs(
         SELECT
             t.id, t.status, t.unread_count, t.created_at, t.last_message_at,
             t.first_reply_at, t.rating,
+            t.operator_name, t.operator_role, t.operator_tier, t.taken_at,
             u.vk_id, u.first_name, u.last_name, u.photo_url, u.can_write,
             (SELECT m.text FROM ticket_messages m
               WHERE m.ticket_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS preview,
@@ -265,3 +266,33 @@ async def reorder_faq(pool: asyncpg.Pool, ids: list[int]) -> None:
             await conn.execute(
                 "UPDATE faq SET position = $2 WHERE id = $1", faq_id, position
             )
+
+
+async def take_ticket(
+    pool: asyncpg.Pool, ticket_id: int, name: str, role: str, tier: str
+) -> asyncpg.Record | None:
+    """Закрепляет персону за обращением.
+
+    Только если оно ещё не взято: клиент уже мог увидеть, кем ему
+    представились, и второе представление собьёт его с толку.
+    """
+    return await pool.fetchrow(
+        "UPDATE tickets SET operator_name = $2, operator_role = $3,"
+        " operator_tier = $4, taken_at = now(),"
+        " status = CASE WHEN status = 'open' THEN 'in_progress' ELSE status END"
+        " WHERE id = $1 AND taken_at IS NULL AND status <> 'closed'"
+        " RETURNING *",
+        ticket_id, name, role, tier,
+    )
+
+
+async def rating_breakdown(pool: asyncpg.Pool) -> dict[int, int]:
+    """Сколько раз выбрали каждую оценку. Нули тоже нужны — иначе на графике дыра."""
+    rows = await pool.fetch(
+        "SELECT rating, count(*) AS total FROM tickets"
+        " WHERE rating IS NOT NULL GROUP BY rating"
+    )
+    counts = {value: 0 for value in range(1, 6)}
+    for row in rows:
+        counts[row["rating"]] = row["total"]
+    return counts

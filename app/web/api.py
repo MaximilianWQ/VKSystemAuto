@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response as RawResponse
 
-from app import texts
+from app import personas, texts
 from app.db import queries as q
 from app.vk import attachments as vk_attachments
 from app.vk import keyboards as kb
@@ -24,6 +24,19 @@ def _full_name(first: str, last: str) -> str:
     return " ".join(part for part in (first, last) if part) or "Без имени"
 
 
+def _operator(row) -> dict | None:
+    """Кто ведёт обращение. None — ещё никто не взял."""
+    if not row["operator_name"]:
+        return None
+    return {
+        "name": row["operator_name"],
+        "role": row["operator_role"],
+        "tier": row["operator_tier"],
+        "signature": f"{row['operator_name']}, {row['operator_role']}",
+        "taken_at": row["taken_at"].isoformat() if row["taken_at"] else None,
+    }
+
+
 def _dialog(row) -> dict:
     return {
         "id": row["id"],
@@ -35,6 +48,7 @@ def _dialog(row) -> dict:
         "created_at": row["created_at"].isoformat(),
         "last_message_at": row["last_message_at"].isoformat(),
         "rating": row["rating"],
+        "operator": _operator(row),
         "user": {
             "vk_id": row["vk_id"],
             "name": _full_name(row["first_name"], row["last_name"]),
@@ -73,6 +87,7 @@ async def list_messages(request: Request, ticket_id: int) -> dict:
             "id": ticket["id"],
             "status": ticket["status"],
             "rating": ticket["rating"],
+            "operator": _operator(ticket),
             "user": {
                 "vk_id": ticket["user_id"],
                 "name": _full_name(ticket["first_name"], ticket["last_name"]),
@@ -127,18 +142,66 @@ async def close(request: Request, ticket_id: int) -> dict:
 
     await q.close_ticket(pool, ticket_id)
     if ticket["can_write"]:
+        by = ""
+        if ticket["operator_name"]:
+            by = texts.CLOSED_BY.format(
+                signature=f"{ticket['operator_name']}, {ticket['operator_role']}"
+            )
         await outbox.enqueue(
             pool, ticket["user_id"],
-            f"{texts.TICKET_CLOSED.format(id=ticket_id)}\n{texts.ASK_RATING}",
+            texts.TICKET_CLOSED_FULL.format(
+                id=ticket_id, by=by, rating=texts.ASK_RATING
+            ),
             keyboard=kb.rating(ticket_id),
         )
     return {"ok": True}
 
 
+@router.get("/personas")
+async def list_personas() -> dict:
+    return {tier: list(roles) for tier, roles in personas.all_roles().items()}
+
+
+@router.post("/dialogs/{ticket_id}/take")
+async def take(request: Request, ticket_id: int) -> dict:
+    body = await request.json()
+    tier = str(body.get("tier", "operator"))
+    if tier not in personas.TIERS:
+        raise HTTPException(status_code=400, detail="неизвестный уровень")
+
+    pool = request.app.state.pool
+    ticket = await q.get_ticket(pool, ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="обращение не найдено")
+    if ticket["status"] == "closed":
+        raise HTTPException(status_code=409, detail="обращение закрыто")
+    if ticket["taken_at"] is not None:
+        raise HTTPException(status_code=409, detail="обращение уже взято в работу")
+
+    persona = personas.pick(tier)
+    row = await q.take_ticket(pool, ticket_id, persona.name, persona.role, tier)
+    if row is None:
+        # Кто-то успел взять между проверкой и записью.
+        raise HTTPException(status_code=409, detail="обращение уже взято в работу")
+
+    if ticket["can_write"]:
+        await outbox.enqueue(
+            pool, ticket["user_id"],
+            texts.TAKEN_INTRO.format(
+                name=persona.name, role=persona.role, id=ticket_id
+            ),
+        )
+    return {"operator": _operator(row)}
+
+
 @router.get("/stats")
 async def stats(request: Request) -> dict:
-    row = await q.stats(request.app.state.pool)
+    pool = request.app.state.pool
+    row = await q.stats(pool)
+    breakdown = await q.rating_breakdown(pool)
     return {
+        "ratings": {str(value): count for value, count in breakdown.items()},
+        "ratings_total": sum(breakdown.values()),
         "day": row["day"],
         "week": row["week"],
         "open_now": row["open_now"],

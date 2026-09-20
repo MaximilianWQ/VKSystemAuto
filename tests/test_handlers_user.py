@@ -347,3 +347,36 @@ async def test_dashboard_word_from_non_admin_falls_back_to_menu(pool):
     messages = await sent(pool)
     assert len(messages) == 1
     assert "keyboard" in messages[0]
+
+
+async def test_notify_carries_full_message(pool):
+    """Дашборд должен дописать сообщение, не перезапрашивая ленту."""
+    seen = []
+
+    async def notify(event):
+        seen.append(event)
+
+    await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}), notify=notify)
+    await handle_event(pool, CFG, message_new(text="проблема"), notify=notify)
+
+    message = seen[-1]["message"]
+    assert message["direction"] == "in"
+    assert message["text"] == "проблема"
+    assert isinstance(message["id"], int)
+    assert message["created_at"]
+    assert message["attachments"] == []
+
+
+async def test_notified_message_id_matches_stored_row(pool):
+    seen = []
+
+    async def notify(event):
+        seen.append(event)
+
+    await handle_event(pool, CFG, message_new(payload={"cmd": "ticket_new"}), notify=notify)
+    await handle_event(pool, CFG, message_new(text="проблема"), notify=notify)
+
+    ticket = await q.get_open_ticket(pool, 1)
+    stored = await pool.fetchval(
+        "SELECT id FROM ticket_messages WHERE ticket_id = $1", ticket["id"])
+    assert seen[-1]["message"]["id"] == stored

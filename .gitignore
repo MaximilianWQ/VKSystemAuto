@@ -26,3 +26,6 @@ dist/
 web/node_modules/
 web/dist/
 .playwright-mcp/
+
+# копии от синхронизации папки
+* [0-9].*

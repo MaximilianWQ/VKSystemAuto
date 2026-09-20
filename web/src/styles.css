@@ -1,51 +1,70 @@
 @import "tailwindcss";
 
-/* Визуальный язык по референсам: тёплый светло-серый фон, белые карточки
-   с крупным радиусом и мягкой тенью, градиентные плитки на числах. */
-@theme {
-  --color-bg: #f2f1ef;
-  --color-surface: #ffffff;
-  --color-sunken: #eceae7;
-  --color-ink: #111111;
-  --color-muted: #7a7a78;
-  --color-line: rgba(0, 0, 0, 0.07);
-  --color-accent: #111111;
-
-  --radius-card: 28px;
-  --radius-inner: 20px;
-
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter",
-    "Helvetica Neue", Arial, sans-serif;
-}
+/* Рабочий инструмент, а не витрина.
+   Правила, из которых выведены все значения ниже:
+   — плотность: на экране должно помещаться много строк очереди;
+   — цвет несёт смысл, а не украшает: статус, срочность, ошибка;
+   — крупные радиусы и тени убраны, они съедают место и внимание;
+   — цифры моноширинные, чтобы не прыгали при обновлении. */
 
 :root {
-  --bg: #f2f1ef;
+  --bg: #faf9f7;
+  --panel: #f2f1ee;
   --surface: #ffffff;
-  --sunken: #eceae7;
-  --ink: #111111;
-  --muted: #7a7a78;
-  --line: rgba(0, 0, 0, 0.07);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.05);
-  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.06), 0 18px 48px rgba(0, 0, 0, 0.09);
+  --line: #e4e2dd;
+  --line-strong: #d3d0c9;
+  --ink: #1a1a18;
+  --ink-soft: #46443f;
+  --muted: #78756d;
+
+  /* Смысловые цвета. Больше в интерфейсе никакого цвета нет. */
+  --wait: #c2410c;
+  --wait-bg: #fff2e8;
+  --work: #15803d;
+  --work-bg: #eefaf0;
+  --done: #78756d;
+  --done-bg: #f1f0ed;
+  --alarm: #b91c1c;
+  --alarm-bg: #fdf0ef;
+
+  --row: 3px;
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI",
+    Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111110;
-    --surface: #1c1b1a;
-    --sunken: #262523;
-    --ink: #f5f4f2;
-    --muted: #9a9895;
-    --line: rgba(255, 255, 255, 0.09);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.4);
-    --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.6), 0 18px 48px rgba(0, 0, 0, 0.5);
+    --bg: #0f0f0e;
+    --panel: #161615;
+    --surface: #1c1c1a;
+    --line: #2c2b28;
+    --line-strong: #3a3935;
+    --ink: #f3f2ef;
+    --ink-soft: #c9c7c1;
+    --muted: #8b887f;
+
+    --wait: #fb923c;
+    --wait-bg: #2a1a0f;
+    --work: #4ade80;
+    --work-bg: #10231a;
+    --done: #8b887f;
+    --done-bg: #1f1f1d;
+    --alarm: #f87171;
+    --alarm-bg: #2a1616;
+
     color-scheme: dark;
   }
 }
 
 * {
   -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
 }
 
 html,
@@ -58,59 +77,74 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 15px;
+  font-family: var(--font);
+  font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
 }
 
-/* Крупные числа: плотный трекинг и моноширинные цифры, чтобы они не прыгали
-   при обновлении. */
-.numeral {
-  letter-spacing: -0.035em;
+/* Цифры не должны прыгать при обновлении счётчиков. */
+.num {
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.display {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
   font-weight: 600;
   line-height: 1;
 }
 
-.card {
-  background: var(--surface);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow);
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
-.pill {
-  border-radius: 999px;
-}
-
-.hairline {
-  border-color: var(--line);
-}
-
-/* Полоса прокрутки мешает воздуху в макете. */
-.quiet-scroll {
+/* Полоса прокрутки не должна перетягивать внимание. */
+.scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--line-strong) transparent;
+  overflow-y: auto;
 }
-.quiet-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.scroll::-webkit-scrollbar {
+  width: 8px;
 }
-.quiet-scroll::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 999px;
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
-.quiet-scroll::-webkit-scrollbar-track {
+.scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* Безопасные зоны iPhone: без этого поле ввода уезжает под индикатор. */
-.safe-bottom {
+/* Видимый фокус обязателен: инструментом пользуются с клавиатуры. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.safe-b {
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
-.safe-top {
+.safe-t {
   padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+/* Клавиша в подсказках горячих клавиш. */
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -118,7 +152,6 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
 import { api, ApiError } from '../api'
+import { Button, Panel } from '../components/ui'
 
 type Topic = {
   id: number
@@ -11,6 +11,8 @@ type Topic = {
 }
 
 const MAX_TITLE = 200
+/** Столько тем помещается в клавиатуру ВК — дальше кнопки обрезаются. */
+const VISIBLE_IN_BOT = 8
 
 function Editor({
   initial,
@@ -28,22 +30,23 @@ function Editor({
   const tooLong = title.length > MAX_TITLE
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <div>
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="Тема — то, что увидит клиент на кнопке"
-          className="w-full h-11 px-4 outline-none text-[15px]"
+          placeholder="Тема — текст на кнопке у клиента"
+          className="w-full h-9 px-3 outline-none text-[14px]"
           style={{
-            background: 'var(--sunken)',
-            borderRadius: 'var(--radius-inner)',
+            background: 'var(--bg)',
+            border: `1px solid ${tooLong ? 'var(--alarm)' : 'var(--line)'}`,
+            borderRadius: 'var(--radius)',
             color: 'var(--ink)',
           }}
         />
         <div
-          className="mt-1 text-[12px] text-right tabular-nums"
-          style={{ color: tooLong ? '#D8412F' : 'var(--muted)' }}
+          className="num mt-1 text-[11px] text-right"
+          style={{ color: tooLong ? 'var(--alarm)' : 'var(--muted)' }}
         >
           {title.length} / {MAX_TITLE}
         </div>
@@ -51,31 +54,25 @@ function Editor({
       <textarea
         value={answer}
         onChange={(event) => setAnswer(event.target.value)}
-        placeholder="Ответ, который бот пришлёт в сообщении"
+        placeholder="Ответ, который бот пришлёт сообщением"
         rows={4}
-        className="w-full p-4 outline-none resize-y text-[15px]"
+        className="w-full p-3 outline-none resize-y text-[14px] scroll"
         style={{
-          background: 'var(--sunken)',
-          borderRadius: 'var(--radius-inner)',
+          background: 'var(--bg)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--radius)',
           color: 'var(--ink)',
         }}
       />
       <div className="flex gap-2">
-        <button
+        <Button
           onClick={() => onSave({ title: title.trim(), answer: answer.trim() })}
           disabled={busy || tooLong || !title.trim() || !answer.trim()}
-          className="pill px-5 h-10 text-[14px] font-medium transition-transform active:scale-95 disabled:opacity-40"
-          style={{ background: 'var(--ink)', color: 'var(--bg)' }}
+          variant="primary"
         >
           Сохранить
-        </button>
-        <button
-          onClick={onCancel}
-          className="pill px-5 h-10 text-[14px]"
-          style={{ background: 'var(--sunken)' }}
-        >
-          Отмена
-        </button>
+        </Button>
+        <Button onClick={onCancel}>Отмена</Button>
       </div>
     </div>
   )
@@ -116,33 +113,29 @@ export function Faq() {
     void run(() => api.post('/api/faq/reorder', { ids: next.map((t) => t.id) }))
   }
 
+  let activeSeen = 0
+
   return (
-    <div className="h-full overflow-y-auto quiet-scroll px-4 py-5 safe-top">
+    <div className="h-full scroll px-4 py-4 safe-t">
       <div className="max-w-2xl">
-        <h1 className="numeral text-[28px] mb-2">Частые вопросы</h1>
-        <p className="text-[14px] mb-5" style={{ color: 'var(--muted)' }}>
-          Первые восемь включённых тем бот показывает кнопками. Порядок здесь —
+        <h1 className="text-[15px] font-semibold">Частые вопросы</h1>
+        <p className="mt-1 mb-3 text-[12px]" style={{ color: 'var(--muted)' }}>
+          Первые {VISIBLE_IN_BOT} включённых тем бот показывает кнопками. Порядок здесь —
           порядок в боте.
         </p>
 
         {error && (
-          <p className="mb-4 text-[13px]" style={{ color: '#D8412F' }}>
+          <p className="mb-3 text-[12px]" style={{ color: 'var(--alarm)' }}>
             {error}
           </p>
         )}
 
-        <div className="flex flex-col gap-2.5">
-          <AnimatePresence initial={false}>
-            {topics.map((topic, index) => (
-              <motion.div
-                key={topic.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                className="card p-4"
-                style={{ opacity: topic.is_active ? 1 : 0.55 }}
-              >
+        <div className="flex flex-col gap-2">
+          {topics.map((topic, index) => {
+            if (topic.is_active) activeSeen += 1
+            const beyondBot = topic.is_active && activeSeen > VISIBLE_IN_BOT
+            return (
+              <Panel key={topic.id} className="px-4 py-3">
                 {editing === topic.id ? (
                   <Editor
                     initial={{ title: topic.title, answer: topic.answer }}
@@ -153,21 +146,41 @@ export function Faq() {
                 ) : (
                   <>
                     <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-[15px]">{topic.title}</div>
+                      <div className="min-w-0 flex-1" style={{ opacity: topic.is_active ? 1 : 0.5 }}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-[14px]">{topic.title}</span>
+                          {!topic.is_active && (
+                            <span
+                              className="text-[11px] px-1.5 py-[1px] rounded"
+                              style={{ background: 'var(--done-bg)', color: 'var(--done)' }}
+                            >
+                              скрыта
+                            </span>
+                          )}
+                          {beyondBot && (
+                            <span
+                              className="text-[11px] px-1.5 py-[1px] rounded"
+                              style={{ background: 'var(--wait-bg)', color: 'var(--wait)' }}
+                              title="Не поместится в клавиатуру ВК"
+                            >
+                              вне кнопок
+                            </span>
+                          )}
+                        </div>
                         <div
-                          className="mt-1 text-[14px] whitespace-pre-wrap"
+                          className="mt-1 text-[13px] whitespace-pre-wrap"
                           style={{ color: 'var(--muted)' }}
                         >
                           {topic.answer}
                         </div>
                       </div>
+
                       <div className="flex flex-col gap-1 shrink-0">
                         <button
                           onClick={() => move(index, -1)}
                           disabled={index === 0 || busy}
-                          className="pill w-7 h-7 grid place-items-center text-[13px] disabled:opacity-25"
-                          style={{ background: 'var(--sunken)' }}
+                          className="w-7 h-6 grid place-items-center text-[12px] disabled:opacity-25"
+                          style={{ border: '1px solid var(--line)', borderRadius: 6 }}
                           aria-label="Выше"
                         >
                           ↑
@@ -175,8 +188,8 @@ export function Faq() {
                         <button
                           onClick={() => move(index, 1)}
                           disabled={index === topics.length - 1 || busy}
-                          className="pill w-7 h-7 grid place-items-center text-[13px] disabled:opacity-25"
-                          style={{ background: 'var(--sunken)' }}
+                          className="w-7 h-6 grid place-items-center text-[12px] disabled:opacity-25"
+                          style={{ border: '1px solid var(--line)', borderRadius: 6 }}
                           aria-label="Ниже"
                         >
                           ↓
@@ -185,60 +198,50 @@ export function Faq() {
                     </div>
 
                     <div className="flex flex-wrap gap-2 mt-3">
-                      <button
-                        onClick={() => setEditing(topic.id)}
-                        className="pill px-4 h-8 text-[13px]"
-                        style={{ background: 'var(--sunken)' }}
-                      >
-                        Изменить
-                      </button>
-                      <button
+                      <Button onClick={() => setEditing(topic.id)}>Изменить</Button>
+                      <Button
                         onClick={() =>
                           run(() =>
                             api.patch(`/api/faq/${topic.id}`, { is_active: !topic.is_active }),
                           )
                         }
                         disabled={busy}
-                        className="pill px-4 h-8 text-[13px]"
-                        style={{ background: 'var(--sunken)' }}
                       >
-                        {topic.is_active ? 'Скрыть от клиентов' : 'Показать клиентам'}
-                      </button>
-                      <button
+                        {topic.is_active ? 'Скрыть' : 'Показать'}
+                      </Button>
+                      <Button
                         onClick={() => {
                           if (confirm(`Удалить тему «${topic.title}»?`)) {
                             void run(() => api.remove(`/api/faq/${topic.id}`))
                           }
                         }}
                         disabled={busy}
-                        className="pill px-4 h-8 text-[13px]"
-                        style={{ background: 'var(--sunken)', color: '#D8412F' }}
+                        variant="danger"
                       >
                         Удалить
-                      </button>
+                      </Button>
                     </div>
                   </>
                 )}
-              </motion.div>
-            ))}
-          </AnimatePresence>
+              </Panel>
+            )
+          })}
 
           {editing === 'new' ? (
-            <div className="card p-4">
+            <Panel className="px-4 py-3">
               <Editor
                 initial={{ title: '', answer: '' }}
                 busy={busy}
                 onCancel={() => setEditing(null)}
                 onSave={(value) => run(() => api.post('/api/faq', value))}
               />
-            </div>
+            </Panel>
           ) : (
-            <button
-              onClick={() => setEditing('new')}
-              className="card p-4 text-left text-[15px] font-medium"
-            >
-              + Добавить тему
-            </button>
+            <div>
+              <Button onClick={() => setEditing('new')} variant="primary">
+                + Добавить тему
+              </Button>
+            </div>
           )}
         </div>
       </div>

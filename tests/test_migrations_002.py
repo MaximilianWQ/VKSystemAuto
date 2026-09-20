@@ -17,7 +17,7 @@ async def test_challenges_table_exists(pool):
 async def test_both_migrations_recorded(pool):
     names = [r["name"] for r in await pool.fetch(
         "SELECT name FROM schema_migrations ORDER BY name")]
-    assert names == ["001_init.sql", "002_dashboard.sql"]
+    assert names == ["001_init.sql", "002_dashboard.sql", "003_assignment.sql"]
 
 
 async def test_purpose_is_constrained(pool):

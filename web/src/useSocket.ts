@@ -8,11 +8,14 @@ import { useEffect, useRef, useState } from 'react'
 const FIRST_DELAY = 1000
 const MAX_DELAY = 20000
 
+import type { Message } from './api'
+
 export type SocketEvent = {
   type: string
   ticket_id?: number
   user_id?: number
   text?: string
+  message?: Message
 }
 
 export function useSocket(onEvent: (event: SocketEvent) => void, enabled: boolean) {
