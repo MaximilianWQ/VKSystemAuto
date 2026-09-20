@@ -19,20 +19,26 @@
 
 ## Переменные окружения
 
-| Переменная | Обязательна | Описание |
-|---|---|---|
-| `VK_GROUP_TOKEN` | да | Токен сообщества с правами `messages` и `manage` |
-| `VK_GROUP_ID` | да | Числовой id сообщества |
-| `VK_CONFIRMATION_CODE` | да | Строка подтверждения из настроек Callback API |
-| `VK_SECRET_KEY` | да | Секретный ключ Callback API |
-| `VK_API_VERSION` | нет | По умолчанию `5.199` |
-| `ADMIN_ID` | да | vk_id владельца дашборда |
-| `DATABASE_URL` | да | Подставляется Railway из сервиса Postgres |
-| `PUBLIC_URL` | да | Адрес сервиса, например `https://имя.up.railway.app` |
-| `SESSION_SECRET` | да | Случайная строка от 32 символов |
-| `VK_MODE` | нет | `callback` (по умолчанию) или `longpoll` |
-| `WORK_HOURS` | нет | По умолчанию `10-19` |
-| `TZ` | нет | По умолчанию `Europe/Moscow` |
+Задать вручную нужно четыре штуки — остальное подставляется само.
+
+| Переменная | Откуда взять |
+|---|---|
+| `VK_GROUP_ID` | номер сообщества, для Atlas Secure это `237579772` |
+| `VK_CONFIRMATION_CODE` | строка подтверждения из настроек Callback API |
+| `VK_SECRET_KEY` | любая случайная строка, её же вписать в настройки Callback API |
+| `SESSION_SECRET` | `openssl rand -hex 32`, минимум 32 символа |
+
+Подставляются автоматически:
+
+| Переменная | Кем |
+|---|---|
+| `VK_GROUP_TOKEN` | принимается и под старым именем `VK_TOKEN` |
+| `ADMIN_ID` | уже задана в Railway |
+| `DATABASE_URL` | сервисом Postgres |
+| `PUBLIC_URL` | выводится из `RAILWAY_PUBLIC_DOMAIN` |
+
+Необязательные, со значениями по умолчанию: `VK_API_VERSION` (`5.199`),
+`VK_MODE` (`callback`), `WORK_HOURS` (`10-19`), `TZ` (`Europe/Moscow`).
 
 Переменные дашборда (`WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGIN`, `VAPID_*`) добавляются
 во втором этапе.

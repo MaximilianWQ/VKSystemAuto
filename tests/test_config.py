@@ -72,3 +72,41 @@ def test_public_url_defaults_to_empty():
 def test_public_url_trailing_slash_removed():
     cfg = load_config({**BASE_ENV, "PUBLIC_URL": "https://bot.up.railway.app/"})
     assert cfg.public_url == "https://bot.up.railway.app"
+
+
+def test_accepts_legacy_vk_token_name():
+    """В Railway переменная уже называется VK_TOKEN — не заставляем её переименовывать."""
+    env = {k: v for k, v in BASE_ENV.items() if k != "VK_GROUP_TOKEN"}
+    cfg = load_config({**env, "VK_TOKEN": "из-railway"})
+    assert cfg.vk_group_token == "из-railway"
+
+
+def test_group_token_wins_over_legacy_name():
+    cfg = load_config({**BASE_ENV, "VK_TOKEN": "старый"})
+    assert cfg.vk_group_token == "tok"
+
+
+def test_missing_both_token_names_is_an_error():
+    env = {k: v for k, v in BASE_ENV.items() if k != "VK_GROUP_TOKEN"}
+    with pytest.raises(ConfigError, match="VK_GROUP_TOKEN"):
+        load_config(env)
+
+
+def test_public_url_derived_from_railway_domain():
+    """Railway сам подставляет RAILWAY_PUBLIC_DOMAIN — PUBLIC_URL задавать не нужно."""
+    cfg = load_config({**BASE_ENV, "RAILWAY_PUBLIC_DOMAIN": "vkbot.up.railway.app"})
+    assert cfg.public_url == "https://vkbot.up.railway.app"
+
+
+def test_explicit_public_url_wins_over_railway_domain():
+    cfg = load_config({
+        **BASE_ENV,
+        "PUBLIC_URL": "https://support.example.ru",
+        "RAILWAY_PUBLIC_DOMAIN": "vkbot.up.railway.app",
+    })
+    assert cfg.public_url == "https://support.example.ru"
+
+
+def test_railway_domain_with_scheme_is_not_doubled():
+    cfg = load_config({**BASE_ENV, "RAILWAY_PUBLIC_DOMAIN": "https://vkbot.up.railway.app"})
+    assert cfg.public_url == "https://vkbot.up.railway.app"

@@ -38,6 +38,28 @@ def _required(env: Mapping[str, str], key: str) -> str:
     return value
 
 
+def _first(env: Mapping[str, str], *keys: str) -> str:
+    """Первое непустое значение из перечисленных имён."""
+    for key in keys:
+        value = env.get(key, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_public_url(env: Mapping[str, str]) -> str:
+    """Railway сам выставляет RAILWAY_PUBLIC_DOMAIN — не заставляем дублировать руками."""
+    explicit = env.get("PUBLIC_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    domain = env.get("RAILWAY_PUBLIC_DOMAIN", "").strip().rstrip("/")
+    if not domain:
+        return ""
+    if domain.startswith(("http://", "https://")):
+        return domain
+    return f"https://{domain}"
+
+
 def _required_int(env: Mapping[str, str], key: str) -> int:
     raw = _required(env, key)
     try:
@@ -68,15 +90,20 @@ def load_config(env: Mapping[str, str]) -> Config:
     if len(session_secret) < 32:
         raise ConfigError("SESSION_SECRET должна быть не короче 32 символов")
 
+    # Историческое имя VK_TOKEN поддерживаем: в Railway переменная уже так называется.
+    vk_group_token = _first(env, "VK_GROUP_TOKEN", "VK_TOKEN")
+    if not vk_group_token:
+        raise ConfigError("VK_GROUP_TOKEN не задана")
+
     return Config(
-        vk_group_token=_required(env, "VK_GROUP_TOKEN"),
+        vk_group_token=vk_group_token,
         vk_group_id=_required_int(env, "VK_GROUP_ID"),
         vk_confirmation_code=_required(env, "VK_CONFIRMATION_CODE"),
         vk_secret_key=_required(env, "VK_SECRET_KEY"),
         vk_api_version=env.get("VK_API_VERSION", "").strip() or "5.199",
         admin_id=_required_int(env, "ADMIN_ID"),
         database_url=_required(env, "DATABASE_URL"),
-        public_url=env.get("PUBLIC_URL", "").strip().rstrip("/"),
+        public_url=_resolve_public_url(env),
         vk_mode=mode,
         work_hours=_parse_work_hours(env.get("WORK_HOURS", "").strip() or "10-19"),
         tz=env.get("TZ", "").strip() or "Europe/Moscow",
