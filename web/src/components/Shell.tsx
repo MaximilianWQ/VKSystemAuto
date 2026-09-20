@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
 
-export type Tab = 'dialogs' | 'stats' | 'settings'
+export type Tab = 'dialogs' | 'faq' | 'stats' | 'settings'
 
 const TABS: { key: Tab; label: string; glyph: string }[] = [
   { key: 'dialogs', label: 'Диалоги', glyph: '💬' },
+  { key: 'faq', label: 'Вопросы', glyph: '📖' },
   { key: 'stats', label: 'Статистика', glyph: '📊' },
   { key: 'settings', label: 'Настройки', glyph: '⚙︎' },
 ]

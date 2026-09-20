@@ -216,3 +216,52 @@ async def stats(pool: asyncpg.Pool) -> asyncpg.Record:
         FROM tickets
         """
     )
+
+
+async def list_all_faq(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    """Все темы, включая выключенные: оператору нужно видеть и их."""
+    return await pool.fetch("SELECT * FROM faq ORDER BY position, id")
+
+
+async def create_faq(pool: asyncpg.Pool, title: str, answer: str) -> asyncpg.Record:
+    """Новая тема встаёт в конец списка."""
+    return await pool.fetchrow(
+        "INSERT INTO faq (title, answer, position)"
+        " VALUES ($1, $2, COALESCE((SELECT max(position) + 1 FROM faq), 0))"
+        " RETURNING *",
+        title, answer,
+    )
+
+
+async def update_faq(
+    pool: asyncpg.Pool,
+    faq_id: int,
+    title: str | None = None,
+    answer: str | None = None,
+    is_active: bool | None = None,
+) -> asyncpg.Record | None:
+    return await pool.fetchrow(
+        "UPDATE faq SET"
+        " title = COALESCE($2, title),"
+        " answer = COALESCE($3, answer),"
+        " is_active = COALESCE($4, is_active)"
+        " WHERE id = $1 RETURNING *",
+        faq_id, title, answer, is_active,
+    )
+
+
+async def delete_faq(pool: asyncpg.Pool, faq_id: int) -> bool:
+    result = await pool.execute("DELETE FROM faq WHERE id = $1", faq_id)
+    return result.split()[-1] != "0"
+
+
+async def reorder_faq(pool: asyncpg.Pool, ids: list[int]) -> None:
+    """Расставляет позиции в порядке переданных идентификаторов.
+
+    Одной транзакцией: половинчатый порядок хуже старого.
+    """
+    async with pool.acquire() as conn, conn.transaction():
+        for position, faq_id in enumerate(ids):
+            await conn.execute(
+                "UPDATE faq SET position = $2 WHERE id = $1", faq_id, position
+            )
