@@ -10,7 +10,7 @@ from app.vk.callback import router
 
 ENV = {
     "VK_GROUP_TOKEN": "t", "VK_GROUP_ID": "111", "VK_CONFIRMATION_CODE": "код42",
-    "VK_SECRET_KEY": "секрет", "ADMIN_ID": "777", "DATABASE_URL": "postgresql://x",
+    "VK_SECRET_KEY": "Zx9KpQm2LtVn", "ADMIN_ID": "777", "DATABASE_URL": "postgresql://x",
     "SESSION_SECRET": "s" * 32,
 }
 CFG = load_config(ENV)
@@ -45,7 +45,7 @@ async def drain(app):
 
 def event(**extra):
     base = {
-        "type": "message_new", "group_id": 111, "secret": "секрет",
+        "type": "message_new", "group_id": 111, "secret": "Zx9KpQm2LtVn",
         "event_id": "evt-1",
         "object": {"message": {"id": 1, "from_id": 5, "peer_id": 5, "text": "привет"}},
     }
@@ -169,3 +169,36 @@ async def test_response_is_fast(client):
     await http.post("/vk/callback", json=event())
     assert time.monotonic() - started < 0.1
     await drain(app)
+
+
+async def test_logs_reason_for_group_mismatch(client, caplog):
+    """Без причины в логе отладка сводится к угадыванию."""
+    http, _ = client
+    with caplog.at_level("WARNING"):
+        await http.post("/vk/callback", json=event(group_id=222))
+    assert "group_id" in caplog.text
+
+
+async def test_logs_reason_for_secret_mismatch(client, caplog):
+    http, _ = client
+    with caplog.at_level("WARNING"):
+        await http.post("/vk/callback", json=event(secret="чужой"))
+    assert "секрет" in caplog.text
+
+
+async def test_log_never_contains_secret_values(client, caplog):
+    http, _ = client
+    with caplog.at_level("WARNING"):
+        await http.post("/vk/callback", json=event(secret="подсмотренный-секрет"))
+    assert "подсмотренный-секрет" not in caplog.text
+    assert CFG.vk_secret_key not in caplog.text
+
+
+async def test_logs_when_secret_absent_entirely(client, caplog):
+    """Пустое поле секрета в настройках ВК — самая частая причина 403."""
+    http, _ = client
+    payload = event()
+    del payload["secret"]
+    with caplog.at_level("WARNING"):
+        await http.post("/vk/callback", json=payload)
+    assert "не передан" in caplog.text

@@ -49,6 +49,10 @@ async def vk_callback(request: Request) -> str:
 
     cfg = request.app.state.cfg
     if event.get("group_id") != cfg.vk_group_id:
+        logger.warning(
+            "событие отклонено: group_id не совпал, пришёл %s, ожидали %s",
+            event.get("group_id"), cfg.vk_group_id,
+        )
         raise HTTPException(status_code=403, detail="forbidden")
 
     if event.get("type") == "confirmation":
@@ -57,6 +61,14 @@ async def vk_callback(request: Request) -> str:
         return cfg.vk_confirmation_code
 
     if event.get("secret") != cfg.vk_secret_key:
+        # Значения не логируем: это секреты. Логируем только факт и длины —
+        # их достаточно, чтобы отличить пустое поле от опечатки.
+        received = event.get("secret")
+        reason = "не передан" if not received else f"не совпал, длина {len(received)}"
+        logger.warning(
+            "событие отклонено: секрет %s, ожидаемая длина %s",
+            reason, len(cfg.vk_secret_key),
+        )
         raise HTTPException(status_code=403, detail="forbidden")
 
     event_id = event.get("event_id")
