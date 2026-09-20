@@ -1401,7 +1401,9 @@ async def process_batch(pool: asyncpg.Pool, client, limit: int = 20) -> int:
         limit,
     )
 
-    for row in rows:
+    # RETURNING не гарантирует порядок строк, даже когда подзапрос с ORDER BY id.
+    # Для переписки порядок важен, поэтому сортируем явно.
+    for row in sorted(rows, key=lambda r: r["id"]):
         await _send_one(pool, client, row)
     return len(rows)
 
