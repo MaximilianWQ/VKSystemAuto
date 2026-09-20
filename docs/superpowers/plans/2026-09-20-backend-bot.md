@@ -2139,8 +2139,8 @@ def next_working_time(cfg: Config, now: datetime | None = None) -> str:
 
 ```python
 import json
-
-import pytest
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.config import load_config
 from app.db import queries as q
@@ -2152,7 +2152,12 @@ ENV = {
     "SESSION_SECRET": "s" * 32, "WORK_HOURS": "0-24",
 }
 CFG = load_config(ENV)
-NIGHT_CFG = load_config({**ENV, "WORK_HOURS": "10-11"})
+
+# Окно в один час, заведомо не совпадающее с текущим: иначе тест нерабочего
+# времени зелёный или красный в зависимости от часа запуска.
+_HOUR = datetime.now(ZoneInfo("Europe/Moscow")).hour
+CLOSED_START = (_HOUR + 3) % 22
+NIGHT_CFG = load_config({**ENV, "WORK_HOURS": f"{CLOSED_START}-{CLOSED_START + 1}"})
 
 
 def message_new(from_id=1, text="", payload=None, attachments=None, message_id=100):
@@ -2280,7 +2285,7 @@ async def test_off_hours_autoreply(pool):
     await handle_event(pool, NIGHT_CFG, message_new(payload={"cmd": "ticket_new"}))
     await handle_event(pool, NIGHT_CFG, message_new(text="проблема"))
     bodies = " ".join(m["message"] for m in await sent(pool))
-    assert "с 10:00" in bodies
+    assert f"с {CLOSED_START:02d}:00" in bodies
 
 
 async def test_ticket_list_when_empty(pool):
